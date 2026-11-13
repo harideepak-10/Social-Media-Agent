@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Digital Marketing Agent{% endblock %}</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --brand:#4F46E5; }
+  * { box-sizing:border-box } body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink) }
+  header { background:#111827; color:#fff; padding:14px 28px; display:flex; gap:16px; align-items:center }
+  header a { color:#fff; text-decoration:none; font-weight:600 } header .sp { flex:1 }
+  main { max-width:1180px; margin:24px auto; padding:0 20px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-bottom:18px }
+  h2 { font-size:17px; margin:0 0 12px } h1 { font-size:22px; margin:0 0 6px }
+  .grid { display:grid; gap:12px } .g7 { grid-template-columns:repeat(7,1fr) } .g2 { grid-template-columns:1fr 1fr }
+  .day { border:1px solid var(--line); border-radius:10px; padding:10px; font-size:13px; min-height:96px }
+  .day b { display:block } .muted { color:var(--muted); font-size:13px }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; font-weight:600; background:#eef2ff; color:#3730a3 }
+  .video { background:#fce7f3; color:#9d174d } .post { background:#e0f2fe; color:#075985 } .none { background:#f3f4f6; color:#6b7280 }
+  .s-pending_approval { background:#fef3c7; color:#92400e } .s-approved { background:#dcfce7; color:#166534 }
+  .s-published { background:#166534; color:#fff } .s-failed,.s-rejected { background:#fee2e2; color:#991b1b }
+  .s-dry_run { background:#e5e7eb; color:#374151 } .s-partial { background:#ffedd5; color:#9a3412 } .s-generating { background:#e0e7ff; color:#3730a3 }
+  table { width:100%; border-collapse:collapse } td,th { text-align:left; padding:9px 8px; border-top:1px solid var(--line); font-size:14px; vertical-align:middle }
+  th { color:var(--muted); font-weight:600; border-top:none; font-size:12px; text-transform:uppercase; letter-spacing:.04em }
+  img.th { width:54px; height:54px; object-fit:cover; border-radius:8px }
+  button,.btn { background:var(--brand); color:#fff; border:0; border-radius:9px; padding:8px 14px; font-weight:600; cursor:pointer; font-size:14px; text-decoration:none; display:inline-block }
+  .btn-ghost { background:#fff; color:var(--ink); border:1px solid var(--line) } .btn-ok { background:#16a34a } .btn-bad { background:#dc2626 }
+  select,input,textarea { font:inherit; border:1px solid var(--line); border-radius:8px; padding:7px 9px; width:100% }
+  textarea { min-height:150px } label { font-weight:600; font-size:13px; display:block; margin:12px 0 4px }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap } .msg { background:#ecfdf5; border:1px solid #a7f3d0; padding:10px 14px; border-radius:10px; margin-bottom:16px }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px } .on { background:#16a34a } .off { background:#d1d5db }
+  pre { background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:10px; white-space:pre-wrap; font-size:12px; max-height:320px; overflow:auto }
+  @media (max-width:900px) { .g7 { grid-template-columns:repeat(2,1fr) } .g2 { grid-template-columns:1fr } }
+</style>
+</head>
+<body>
+<header><a href="/">📣 Digital Marketing Agent</a><span class="sp"></span><span class="muted" style="color:#9ca3af">{{ settings.company.name if settings else '' }}</span></header>
+<main>
+{% if request.query_params.get('msg') %}<div class="msg">{{ request.query_params.get('msg') }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+{% if login_needed %}<div class="msg" style="background:#fef3c7;border-color:#fcd34d">⚠️ Website login not saved yet — videos can't show your app pages. Run <code>python cli.py login</code> once on this PC.</div>{% endif %}
+<div class="card">
+  <h2>Next 7 days</h2>
+  <div class="grid g7">
+    {% for d in week %}
+    <div class="day">
+      <b>{{ d.date.strftime('%a %d %b') }}</b>
+      <span class="pill {{ d.kind }}">{{ d.kind }}</span>
+      {% for f in d.festivals %}<div class="muted">🎉 {{ f }}</div>{% endfor %}
+      {% if d.event %}<div class="muted">📌 {{ d.event.title }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>🎬 Create from any website</h2>
+  <form method="post" action="/from-url" class="row" style="align-items:flex-end">
+    <div style="flex:3;min-width:260px"><label>Website link</label><input name="url" placeholder="https://anywebsite.com" required></div>
+    <div style="flex:1;min-width:120px"><label>Type</label><select name="kind"><option value="video">Video</option><option value="post">Post</option></select></div>
+    <div style="flex:3;min-width:240px"><label>Focus (optional)</label><input name="notes" placeholder="e.g. explain the booking feature, target restaurant owners"></div>
+    <button>Create</button>
+  </form>
+  <p class="muted">The agent reads the site, picks its brand colours and best pages, then writes, records and voices an explainer. If the site needs a login, run <code>python cli.py login --url &lt;site&gt;</code> once first.</p>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Weekly schedule</h2>
+    <form method="post" action="/schedule">
+      <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+      {% for wd in weekdays %}
+        <div><label>{{ wd|capitalize }}</label>
+          <select name="{{ wd }}">
+            {% for opt in ['video','post','none'] %}
+            <option value="{{ opt }}" {% if settings.schedule.get(wd) == opt %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select></div>
+      {% endfor %}
+      </div>
+      <p class="muted">Prepared at {{ settings.generate_time }} the day before · published at {{ settings.publish_time }} after approval ({{ settings.timezone }})</p>
+      <button>Save schedule</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Generate now</h2>
+    <form method="post" action="/generate" class="row">
+      <input type="date" name="day" value="{{ week[0].date.isoformat() }}" style="width:auto">
+      <select name="kind" style="width:auto"><option value="auto">from schedule</option><option value="video">video</option><option value="post">post</option></select>
+      <button>Generate</button>
+    </form>
+    <h2 style="margin-top:20px">Platforms</h2>
+    {% for p, on in platforms.items() %}
+      <div><span class="dot {{ 'on' if on else 'off' }}"></span>{{ p|capitalize }} <span class="muted">{{ 'connected' if on else 'dry-run (add keys in .env)' }}</span></div>
+    {% endfor %}
+    <h2 style="margin-top:20px">Upcoming festivals</h2>
+    <div class="muted">{% for d, n in upcoming[:8] %}{{ d.strftime('%d %b') }} – {{ n }}<br>{% endfor %}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Content</h2>
+  <table>
+    <tr><th></th><th>Date</th><th>Type</th><th>Source</th><th>Topic</th><th>Look</th><th>Status</th><th></th></tr>
+    {% for i in items %}
+    <tr>
+      <td>{% if i.thumb_path %}<img class="th" src="{{ media_url(i.thumb_path) }}">{% endif %}</td>
+      <td>{{ i.run_date.strftime('%a %d %b') }}</td>
+      <td><span class="pill {{ i.kind }}">{{ i.kind }}</span></td>
+      <td class="muted">{{ i.source }}</td>
+      <td>{{ i.topic or '…' }}{% if i.source_url %}<div class="muted">{{ i.source_url }}</div>{% elif i.product %}<div class="muted">{{ i.product }}</div>{% endif %}</td>
+      <td class="muted">{{ i.format }}{% if i.theme %}<br>{{ i.theme }}{% endif %}</td>
+      <td><span class="pill s-{{ i.status }}">{{ i.status.replace('_',' ') }}</span></td>
+      <td><a class="btn btn-ghost" href="/item/{{ i.id }}">Open</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="muted">Nothing yet — use “Generate now” to create your first piece of content.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

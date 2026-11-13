@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────
+#  Digital Marketing Agent — main settings
+#  Edit this file to change your company info, schedule & style.
+# ─────────────────────────────────────────────────────────────
+
+company:
+  name: "Krypsos"
+  tagline: "Technology & Automation"
+  website: "https://www.krypsos.tech"
+  industry: "AI agents, business automation and industry software (restaurant POS, clinic management)"
+  audience: "Small and mid-size business owners, restaurant and clinic owners, founders and operations teams in India"
+  tone: "Calm, confident, premium, benefit-led, no jargon"
+  call_to_action: "Book a free demo at krypsos.tech"
+  logo_path: "assets/logo.png"             # auto-captured from the website on first run if missing
+  brand_colors:
+    primary: "#C8372D"
+    secondary: "#141414"
+    text: "#FFFFFF"
+
+# Products / services the agent rotates through (least recently featured goes next).
+# `url` is the page the agent captures UI from for videos and screenshot posts.
+products:
+  - name: "Restaurant POS"
+    url: "https://www.krypsos.tech/restaurant-pos/"
+    description: "All-in-one restaurant OS: POS billing, live kitchen display, QR table ordering, floor & tables, self-counting stock, multi-branch"
+  - name: "Clinic"
+    url: "https://www.krypsos.tech/clinic/"
+    description: "Software for beauty & wellness clinics: leads pipeline, smart booking, client records with before/after photos, payments, stock"
+  - name: "Super Agent"
+    url: "https://www.krypsos.tech/super-agent/"
+    description: "One assistant, many specialist AI agents (email, documents, calendar, finance) with human approval before anything is sent"
+  - name: "AP/AR Automation"
+    url: "https://www.krypsos.tech/catalog/"
+    description: "Extracts invoice data, verifies accuracy, routes for approval and updates accounting records"
+  - name: "Support Bot (RAG)"
+    url: "https://www.krypsos.tech/catalog/"
+    description: "Web & WhatsApp bot answering from your documents and catalogs, hands over to humans when needed"
+  - name: "Lead Qualifier"
+    url: "https://www.krypsos.tech/catalog/"
+    description: "Scores new inquiries, books appointments and updates your CRM automatically"
+  - name: "Workflow Automations"
+    url: "https://www.krypsos.tech/solutions/"
+    description: "n8n/Make workflows for leads, tickets, emails, spreadsheets and approvals, plus CRM/payment integrations"
+
+# How to read the website (only needed for JavaScript apps / sites behind a login)
+site:
+  render_js: false
+  login_required: false
+  warmup_urls: []
+  wait_text_gone: ["Loading..."]
+
+showcase_pages: []
+
+# Weekly content plan. Allowed values: video | post | none
+schedule:
+  monday: video
+  tuesday: post
+  wednesday: post
+  thursday: video
+  friday: post
+  saturday: post
+  sunday: none
+
+timezone: "Asia/Kolkata"
+generate_time: "18:00"     # agent prepares tomorrow's content at this time (sent for approval)
+publish_time: "10:00"      # approved content goes live at this time on its day
+
+# Which platforms receive each content type
+platforms:
+  video: [instagram, facebook, linkedin]
+  post: [instagram, facebook, linkedin]
+
+# Content mix priority for "post" days
+#   festival  -> Indian festivals / national days from the calendar
+#   event     -> your own events in config/events.yaml
+#   trend     -> tie a current market trend to your product
+#   website   -> a feature / service from your website
+post_priority: [festival, event, trend, website]
+always_post_on_festivals: true   # festival on a "none" day -> still post wishes
+festival_lookahead_days: 1   # post festival wishes on the day (0) or a day early (1)
+country_holidays: "IN"
+trends_geo: "IN"
+
+video:
+  formats: [landscape, vertical]   # 16:9 (LinkedIn, YouTube) + 9:16 (Instagram/Facebook Reels)
+  max_seconds: 75
+  fps: 30
+  voiceover: true            # AI voice explains each scene (set false for music-only, like the samples)
+  voice: "en-IN-PrabhatNeural"   # edge-tts voice (free). e.g. en-IN-NeerjaNeural, en-US-AriaNeural
+  background_music: true     # random royalty-free track from assets/music/*.mp3, ducked under the voice
+  themes: [amber_noir, navy_gold, emerald_night, violet_glow, paper_light]   # rotated, never twice in a row
+
+post:
+  self_review: true          # the AI looks at each rendered post and fixes problems (1-2 extra calls)
+  # formats / themes to rotate (remove any you don't like). Never the same format within 4 posts.
+  formats: [explainer_steps, ui_showcase, before_after, myth_fact, checklist, chat_demo, relatable_meme,
+            big_statement, question_engage, trend_take, tip_card, festive_greeting, event_announcement]
+  themes: [cream_editorial, midnight_violet, dark_tech, amber_noir, navy_gold, clean_white, mint_fresh, sunset_bold]
+
+creative:
+  fallback: true             # if the premium designer fails, publish-ready simple version instead of nothing

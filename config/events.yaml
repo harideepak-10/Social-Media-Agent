@@ -1,0 +1,26 @@
+# Your own company events — product launches, webinars, anniversaries, offers.
+# The agent posts about these on their date (and optionally days before).
+#
+# events:
+#   - date: "2026-12-05"
+#     title: "Krypsos 3rd Anniversary"
+#     details: "Thank customers, share our journey, 3 years of building software"
+#     remind_days_before: 0
+#   - date: "2026-11-25"
+#     title: "Free webinar: AI agents for small businesses"
+#     details: "Register link: https://example.com/webinar, 6 PM IST"
+#     remind_days_before: 2
+
+events: []
+
+# Extra special days you care about that are not public holidays
+# (e.g. Engineers Day, World AI Day). Format MM-DD.
+special_days:
+  "01-12": "National Youth Day"
+  "02-28": "National Science Day"
+  "03-08": "International Women's Day"
+  "05-11": "National Technology Day"
+  "07-01": "Digital India Day"
+  "09-15": "Engineers' Day"
+  "11-30": "Computer Security Day"
+  "12-31": "New Year's Eve"

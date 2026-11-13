@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/" class="muted">← Back</a></p>
+<div class="card">
+  <div class="row" style="justify-content:space-between">
+    <div>
+      <h1>{{ item.topic or 'Generating…' }}</h1>
+      <span class="pill {{ item.kind }}">{{ item.kind }}</span>
+      <span class="pill s-{{ item.status }}">{{ item.status.replace('_',' ') }}</span>
+      <span class="muted">{{ item.run_date.strftime('%A %d %B %Y') }} · source: {{ item.source }}
+        {% if item.product %}· product: {{ item.product }}{% endif %}
+        {% if item.format %}· format: {{ item.format }}{% endif %}{% if item.theme %} · theme: {{ item.theme }}{% endif %}</span>
+    </div>
+    <div class="row">
+      {% if item.status in ['pending_approval','rejected'] %}
+      <form method="post" action="/item/{{ item.id }}/approve"><button class="btn-ok">✓ Approve</button></form>
+      {% endif %}
+      {% if item.status in ['pending_approval','approved'] %}
+      <form method="post" action="/item/{{ item.id }}/reject"><button class="btn-bad">✕ Reject</button></form>
+      {% endif %}
+      <form method="post" action="/item/{{ item.id }}/regenerate"><button class="btn-ghost">↻ Regenerate</button></form>
+      {% if item.status not in ['generating','published','rejected','dry_run'] %}
+      <form method="post" action="/item/{{ item.id }}/publish" onsubmit="return confirm('Publish now to all selected platforms?')"><button>Publish now</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% if item.source_url %}<p class="muted">🔗 <a href="{{ item.source_url }}" target="_blank">{{ item.source_url }}</a>{% if item.notes %} · focus: {{ item.notes }}{% endif %}</p>{% endif %}
+  {% if item.angle %}<p class="muted" style="white-space:pre-wrap">{{ item.angle }}</p>{% endif %}
+  {% if item.error %}<pre style="color:#991b1b">{{ item.error }}</pre>{% endif %}
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Preview</h2>
+    {% if item.kind == 'video' and item.media_path %}
+      <label>16:9 — LinkedIn</label>
+      <video src="{{ media_url(item.media_path) }}" poster="{{ media_url(item.thumb_path) }}" controls style="width:100%;max-height:640px;border-radius:12px;background:#000"></video>
+      {% if item.media_alt_path %}<label>9:16 — Instagram / Facebook Reels</label>
+      <video src="{{ media_url(item.media_alt_path) }}" controls style="width:60%;border-radius:12px;background:#000"></video>{% endif %}
+    {% elif item.media_path %}
+      <img src="{{ media_url(item.media_path) }}" style="width:100%;border-radius:12px">
+    {% else %}<p class="muted">Media is being generated… refresh in a minute.</p>{% endif %}
+    {% if item.script_json %}<label>Script / design</label><pre>{{ item.script_json }}</pre>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Captions</h2>
+    <form method="post" action="/item/{{ item.id }}/save">
+      <label>Platforms</label>
+      <div class="row">
+      {% for p in ['instagram','facebook','linkedin'] %}
+        <label style="font-weight:400;margin:0"><input type="checkbox" name="platforms" value="{{ p }}" style="width:auto" {% if p in item.platform_list %}checked{% endif %}> {{ p|capitalize }}</label>
+      {% endfor %}
+      </div>
+      {% for p, text in captions.items() %}
+        <label>{{ p|capitalize }}</label>
+        <textarea name="caption_{{ p }}">{{ text }}</textarea>
+      {% endfor %}
+      <label>Hashtags</label>
+      <input name="hashtags" value="{{ item.hashtags }}">
+      <p class="muted">Hashtags not already in a caption are appended automatically (LinkedIn gets the first 5).</p>
+      <button>Save edits</button>
+    </form>
+    {% if results %}
+      <h2 style="margin-top:20px">Publish results</h2>
+      {% for p, r in results.items() %}
+        <div>{{ '✅' if r.ok else '❌' }} {{ p|capitalize }} {% if r.dry_run %}<span class="muted">(dry-run, not posted)</span>{% endif %} <span class="muted">{{ r.id }}</span>
+          {% if r.error %}<pre>{{ r.error }}</pre>{% endif %}</div>
+      {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+.env
+agent.db
+media/
+.cache/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# local-only
+Claude outputs/
+*.log
