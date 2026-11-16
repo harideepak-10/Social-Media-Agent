@@ -32,6 +32,7 @@ export interface Item {
 export interface PublishResult { ok: boolean; dry_run?: boolean; id: string; error: string }
 
 export interface ItemDetail extends Item {
+  files: string[];  // where the files are saved, relative to the project folder
   angle: string;
   captions: Partial<Record<Platform, string>>;
   hashtags: string;

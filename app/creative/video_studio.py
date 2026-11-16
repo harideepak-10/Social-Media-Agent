@@ -21,7 +21,8 @@ from datetime import date
 from pathlib import Path
 
 from .. import llm, progress
-from ..config import ASSETS_DIR, MEDIA_DIR, company, settings
+from .. import storage
+from ..config import ASSETS_DIR, company, settings
 from ..generators import browser, ffmpeg, tts
 from . import assets, icons, rotation, visuals
 from .catalog import ICONS, VIDEO_THEMES
@@ -375,7 +376,7 @@ def _audio_track(segments: list[tuple[Path | None, float, float]], total: float,
     return out
 
 
-def build(board: dict, theme_name: str, work: Path, out_base: Path, product_name: str,
+def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], product_name: str,
           orientations: list[str], voice: bool) -> dict[str, Path]:
     theme = VIDEO_THEMES[theme_name]
     vcfg = settings().get("video") or {}
@@ -439,7 +440,7 @@ def build(board: dict, theme_name: str, work: Path, out_base: Path, product_name
     audio = _audio_track([(v, s, d) for _, _, v, s, d in timeline], total, work)
     final = {}
     for orient, silent in outputs.items():
-        out = out_base.with_name(out_base.stem + ("" if orient == orientations[0] else f"_{orient}") + ".mp4")
+        out = targets[orient]
         if audio:
             ffmpeg.run(["-i", str(silent), "-i", str(audio), "-map", "0:v", "-map", "1:a", "-c:v", "copy",
                         "-c:a", "aac", "-shortest", "-movflags", "+faststart", str(out)])
@@ -451,9 +452,7 @@ def build(board: dict, theme_name: str, work: Path, out_base: Path, product_name
 
 def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict | None) -> dict:
     vcfg = settings().get("video") or {}
-    folder = MEDIA_DIR / f"{day:%Y-%m-%d}"
-    work = folder / f"_video_{item_id}"
-    work.mkdir(parents=True, exist_ok=True)
+    work = storage.work_dir("video", item_id)
     voice = bool(vcfg.get("voiceover", True))
     orientations = vcfg.get("formats") or ["landscape", "vertical"]
 
@@ -474,10 +473,11 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
     progress.report(f"AI is writing the storyboard from {len(cap['blocks'])} screens", 25)
     board = storyboard(plan, product, cap, work, voice)
     product_name = (product or {}).get("name", "")
-    files = build(board, theme_name, work, folder / f"video_{item_id}.mp4", product_name, orientations, voice)
+    files = build(board, theme_name, work, storage.video_paths(day, item_id, plan, "promo"),
+                  product_name, orientations, voice)
     main = files[orientations[0]]
     alt = files.get("vertical") if orientations[0] != "vertical" else None
-    thumb = ffmpeg.thumbnail(main, folder / f"video_{item_id}.jpg", at=1.6)
+    thumb = ffmpeg.thumbnail(main, storage.thumb_path(main), at=1.6)
     shutil.rmtree(work, ignore_errors=True)
 
     tags = [t if t.startswith("#") else f"#{t}" for t in board.get("hashtags", [])]

@@ -295,7 +295,7 @@ function Preview({ item }: { item: TItem }) {
           <img src={item.media} alt={item.topic} className="mx-auto max-h-[78vh] rounded-lg shadow-xl shadow-stone-900/10" />
         </div>
         <div className="flex items-center justify-between px-5 py-3 text-sm">
-          <span className="text-stone-500">1080 × 1350 · image</span>
+          <SavedAs label="1080 × 1350" file={item.files?.[0]} />
           <a href={item.media} download className="inline-flex items-center gap-1.5 font-semibold text-stone-700 hover:text-brand-700"><Download className="size-4" /> Download</a>
         </div>
       </Card>
@@ -317,10 +317,20 @@ function Preview({ item }: { item: TItem }) {
           className={clsx("mx-auto block", view === "tall" ? "max-h-[78vh]" : "w-full")} />
       </div>
       <div className="flex items-center justify-between px-5 py-3 text-sm">
-        <span className="text-stone-500">{view === "tall" ? "1080 × 1920" : "1920 × 1080"} · MP4</span>
+        <SavedAs label={view === "tall" ? "1080 × 1920" : "1920 × 1080"}
+          file={item.files?.find((f) => (view === "tall" ? f.includes("9x16") || f.includes("vertical") : !f.includes("9x16"))) ?? item.files?.[0]} />
         <a href={src} download className="inline-flex items-center gap-1.5 font-semibold text-stone-700 hover:text-brand-700"><Download className="size-4" /> Download</a>
       </div>
     </Card>
+  );
+}
+
+function SavedAs({ label, file }: { label: string; file?: string }) {
+  return (
+    <span className="min-w-0 text-stone-500">
+      {label}
+      {file && <> · <span className="font-mono text-xs text-stone-600" title="Saved in your project folder">{file}</span></>}
+    </span>
   );
 }
 

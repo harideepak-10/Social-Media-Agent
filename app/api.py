@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 
 from . import auth, pipeline, publishers
-from .config import MEDIA_DIR, company, settings
+from .config import DATA_DIR, MEDIA_DIR, company, settings
 from .db import ContentItem, get_session
 from .generators import planner
 from .research import calendar
@@ -34,6 +34,16 @@ def media_url(path: str) -> str:
         return ""
 
 
+def saved_as(path: str) -> str:
+    """Path relative to the project/data folder, e.g. media/posters/2026-11-18_clinic_myth-fact_7.jpg"""
+    if not path:
+        return ""
+    try:
+        return Path(path).resolve().relative_to(DATA_DIR.resolve()).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
 def serialize(i: ContentItem, full: bool = False) -> dict:
     data = {
         "id": i.id, "date": i.run_date.isoformat(), "kind": i.kind, "status": i.status,
@@ -50,7 +60,8 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
             script = json.loads(i.script_json) if i.script_json else None
         except ValueError:
             script = i.script_json
-        data.update(angle=i.angle, captions=i.captions, hashtags=i.hashtags, results=i.results, script=script,
+        data.update(files=[f for f in (saved_as(i.media_path), saved_as(i.media_alt_path)) if f],
+                    angle=i.angle, captions=i.captions, hashtags=i.hashtags, results=i.results, script=script,
                     previews={p: pipeline.full_caption(i, p) for p in i.platform_list} if i.captions else {})
     return data
 

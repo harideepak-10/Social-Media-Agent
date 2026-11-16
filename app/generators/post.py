@@ -8,7 +8,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from .. import llm
-from ..config import MEDIA_DIR, company
+from .. import storage
+from ..config import company
 from . import browser, graphics
 from .planner import SYSTEM, _brand_block
 
@@ -120,8 +121,6 @@ def render_image(copy: dict, out: Path) -> Path:
 
 def generate(plan: dict, day: date, item_id: int) -> dict:
     copy = write_copy(plan, day)
-    folder = MEDIA_DIR / f"{day:%Y-%m-%d}"
-    folder.mkdir(parents=True, exist_ok=True)
-    out = render_image(copy, folder / f"post_{item_id}.jpg")
+    out = render_image(copy, storage.poster_path(day, item_id, plan, "simple"))
     tags = [t if t.startswith("#") else f"#{t}" for t in copy.get("hashtags", [])]
     return {"copy": copy, "media": out, "thumb": out, "hashtags": " ".join(tags)}

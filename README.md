@@ -236,6 +236,20 @@ When you upgrade, set the plan in `render.yaml` to `standard` and uncomment the 
 - Use **Regenerate** freely. Edits to captions are saved before publishing.
 - No tool can guarantee a viral post. The agent follows proven patterns (hook, trend tie-in, captions, hashtags) and you approve what fits your brand.
 
+## Where your posters and videos are saved
+```
+media/
+  posters/      2026-11-18_restaurant-pos_before-after_12.jpg      ← ready-to-post images (1080×1350)
+    source/     2026-11-18_restaurant-pos_before-after_12.html     ← the design each poster was made from
+  videos/       2026-11-20_clinic_promo_14_16x9.mp4                 ← LinkedIn / YouTube
+                2026-11-20_clinic_promo_14_9x16.mp4                 ← Instagram / Facebook Reels
+  thumbnails/   video cover images for the dashboard
+  .work/        temporary render files (cleaned automatically)
+```
+File names are *date_product_format_id*, so they sort by date. The review page shows each item's file path.
+Files made by an older version (in `media/<date>/`) can be moved into these folders with `python cli.py organize-media`.
+`media/` stays out of Git. The agent serves it to the dashboard and, later, to Instagram, which needs a public link to each file.
+
 ## Project layout
 ```
 app/research/   website.py (crawler) · trends.py (Google Trends + news) · calendar.py (festivals/events)

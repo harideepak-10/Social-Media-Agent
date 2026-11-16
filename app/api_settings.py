@@ -376,7 +376,7 @@ def voice_preview(body: VoiceIn, _: str = User):
     from .generators import tts
     text = body.text.strip() or f"Hi! I'm the voice of {(settings().get('company') or {}).get('name', 'your brand')}. Book a free demo today."
     key = hashlib.md5(f"{body.voice}|{text}".encode()).hexdigest()[:12]
-    out_dir = MEDIA_DIR / "_previews"
+    out_dir = MEDIA_DIR / ".work" / "voice-previews"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{key}.mp3"
     if not out.exists():

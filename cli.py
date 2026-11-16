@@ -11,6 +11,7 @@
   python cli.py publish 12                 # publish item #12 (must be approved)
   python cli.py research                   # show what the agent sees: site, trends, festivals
   python cli.py doctor                     # health check before going live
+  python cli.py organize-media             # move files made by older versions into media/posters & media/videos
 """
 from __future__ import annotations
 
@@ -44,6 +45,7 @@ def main() -> None:
     p = sub.add_parser("publish")
     p.add_argument("item_id", type=int)
     sub.add_parser("research")
+    sub.add_parser("organize-media", help="move files from older versions into media/posters and media/videos")
     dr = sub.add_parser("doctor")
     dr.add_argument("--quick", action="store_true", help="skip the AI / voice test calls")
     lg = sub.add_parser("login")
@@ -75,6 +77,10 @@ def main() -> None:
         from app import pipeline
         item = pipeline.publish_item(args.item_id)
         print(item.status, item.results)
+    elif args.cmd == "organize-media":
+        from app.storage import organize_existing
+        moved = organize_existing()
+        print(f"Moved {moved} file(s) into media/posters, media/videos and media/thumbnails")
     elif args.cmd == "doctor":
         from app.doctor import run
         sys.exit(0 if run(full=not args.quick) else 1)

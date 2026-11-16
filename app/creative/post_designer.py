@@ -15,7 +15,8 @@ from pathlib import Path
 from PIL import Image
 
 from .. import llm, progress
-from ..config import MEDIA_DIR, company
+from .. import storage
+from ..config import company
 from ..generators import browser
 from . import assets, rotation
 from .catalog import POST_FORMATS, POST_THEMES
@@ -176,9 +177,7 @@ def _review(preview: Path) -> list[str]:
 
 def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, product: dict | None,
              shots: list[dict] | None = None, review: bool = True) -> dict:
-    folder = MEDIA_DIR / f"{day:%Y-%m-%d}"
-    work = folder / f"_post_{item_id}"
-    work.mkdir(parents=True, exist_ok=True)
+    work = storage.work_dir("post", item_id)
     theme = dict(POST_THEMES[theme_name])
 
     logo = assets.brand_logo(company())
@@ -216,9 +215,9 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
         html = _fix(html, problems, preview, fmt, theme_name)
         issues = _render(html, work, preview)
 
-    out = folder / f"post_{item_id}.jpg"
+    out = storage.poster_path(day, item_id, plan, fmt)
     Image.open(preview).convert("RGB").save(out, quality=94)
-    (folder / f"post_{item_id}.html").write_text(html, encoding="utf-8")  # keep the source for edits
+    storage.poster_source_path(out).write_text(html, encoding="utf-8")  # keep the source for edits
     shutil.rmtree(work, ignore_errors=True)
     tags = [t if t.startswith("#") else f"#{t}" for t in data.get("hashtags", [])]
     design = {"headline": data.get("headline", ""), "format": fmt, "theme": theme_name,

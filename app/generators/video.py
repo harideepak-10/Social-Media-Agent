@@ -11,7 +11,8 @@ from pathlib import Path
 from PIL import Image
 
 from .. import llm
-from ..config import ASSETS_DIR, MEDIA_DIR, company, settings
+from .. import storage
+from ..config import ASSETS_DIR, company, settings
 from . import browser, ffmpeg, graphics, tts
 from .planner import SYSTEM, _brand_block
 
@@ -89,7 +90,8 @@ def _prepare_page(shot: Path, end_ratio: float, size: tuple[int, int]) -> tuple[
 
 def build(script: dict, out: Path, orientation: str = "vertical") -> Path:
     size = SIZES.get(orientation, SIZES["vertical"])
-    work = out.parent / f"_work_{out.stem}"
+    from .. import storage
+    work = storage.WORK_DIR / f"simple_{out.stem}"
     work.mkdir(parents=True, exist_ok=True)
     clips: list[Path] = []
     site = (company().get("website") or "").replace("https://", "").replace("http://", "").rstrip("/")
@@ -138,11 +140,9 @@ def build(script: dict, out: Path, orientation: str = "vertical") -> Path:
 
 def generate(plan: dict, day: date, item_id: int) -> dict:
     script = write_script(plan, day)
-    folder = MEDIA_DIR / f"{day:%Y-%m-%d}"
-    folder.mkdir(parents=True, exist_ok=True)
     orientation = (settings().get("video") or {}).get("orientation", "vertical")
-    out = build(script, folder / f"video_{item_id}.mp4", orientation)
-    thumb = ffmpeg.thumbnail(out, folder / f"video_{item_id}.jpg", at=0.8)
+    out = build(script, storage.video_paths(day, item_id, plan, "simple")[orientation], orientation)
+    thumb = ffmpeg.thumbnail(out, storage.thumb_path(out), at=0.8)
     tags = [t if t.startswith("#") else f"#{t}" for t in script.get("hashtags", [])]
     return {"copy": script, "media": out, "thumb": thumb, "hashtags": " ".join(tags),
             "script_json": json.dumps(script, ensure_ascii=False, indent=2)}
