@@ -9,19 +9,23 @@ from . import linkedin, meta
 log = logging.getLogger(__name__)
 
 PLATFORMS = {
-    "facebook": (meta.fb_configured, meta.facebook_publish),
+    "facebook": (meta.fb_configured, lambda kind, media, caption, url: meta.facebook_publish(kind, media, caption)),
     "instagram": (meta.ig_configured, meta.instagram_publish),
-    "linkedin": (linkedin.configured, lambda kind, media, caption: linkedin.publish(kind, media, caption)),
+    "linkedin": (linkedin.configured, lambda kind, media, caption, url: linkedin.publish(kind, media, caption)),
 }
 
 
-def publish(platform: str, kind: str, media: Path, caption: str) -> dict:
+def publish(platform: str, kind: str, media_ref: str | Path, caption: str) -> dict:
+    """media_ref: local path or cloud URL of the file to post."""
     configured, fn = PLATFORMS[platform]
     if not configured():
         log.info("[dry-run] %s %s not configured – skipped", platform, kind)
         return {"ok": True, "dry_run": True, "id": "", "error": ""}
     try:
-        post_id = fn(kind, media, caption)
+        from .. import storage
+        local = storage.local_file(media_ref)
+        url = str(media_ref) if storage.is_url(str(media_ref)) else None
+        post_id = fn(kind, local, caption, url)
         return {"ok": True, "dry_run": False, "id": post_id, "error": ""}
     except Exception as e:
         log.exception("publish to %s failed", platform)

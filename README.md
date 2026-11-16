@@ -220,11 +220,33 @@ Netlify forwards the API, so the browser only ever talks to Netlify. No CORS set
 2. On app.netlify.com, choose **Add new site → Import from Git** and pick the repo. Netlify reads `netlify.toml` (base `frontend`, build `npm ci && npm run build`, publish `dist`).
 3. Deploy, open the Netlify URL and log in with `DASHBOARD_USER` / `DASHBOARD_PASSWORD`.
 
+### Supabase: free database + file storage (so nothing is lost on Render)
+Render's free plan wipes the server's disk on every restart. With Supabase connected:
+- the queue and history are kept in **Postgres**;
+- posters, videos and thumbnails are kept in **Storage**;
+- settings and events you edit in the dashboard are copied into the database and restored on start-up;
+- your uploaded logo and music are kept in Storage and downloaded again on start-up.
+
+Steps:
+1. On supabase.com, create a **new project**. Pick region **South Asia (Mumbai)** and save the database password.
+2. Click **Connect → Session pooler** and copy the URI. Replace `[YOUR-PASSWORD]` with your database password and use the result as `DATABASE_URL`. Use the pooler URI: the direct connection needs IPv6, which Render doesn't have.
+3. Go to **Project Settings → API keys**. Use the **Project URL** as `SUPABASE_URL` and the **secret / service_role** key as `SUPABASE_SERVICE_KEY`. Keep that key secret; it goes only in Render's environment.
+4. Add these three values in Render (Environment). A public `media` bucket is created automatically on the first upload.
+5. Open **Settings → Status & health** in the dashboard. *Database* should show "cloud Postgres" and *File storage* should show "Supabase bucket".
+
+Free tier limits:
+- 500 MB database (plenty).
+- **1 GB storage**: about 40–60 promo videos with both versions, or thousands of posters.
+- Max 50 MB per file.
+- A project pauses after 7 days with no activity; with the cron-job.org ping, the daily agent keeps it active.
+
+On your PC, leave all three empty: the agent keeps using `agent.db` and the `media/` folder.
+
 ### Render free plan: limits and workarounds
 | Limit | What it means | Workaround |
 |---|---|---|
 | Sleeps after 15 min with no visits | The 18:00 preparation and 10:00 publishing don't run while it sleeps. The first visit takes about a minute (the dashboard shows "Waking up the server…"). | Create a free job on cron-job.org that opens `https://<your-app>.onrender.com/health` every 10 minutes. 750 free hours a month covers one service 24/7. |
-| Files reset on every deploy or restart | The queue, generated media, uploaded logo/music and dashboard setting changes are lost. Settings fall back to `config/*.yaml` in the repo. | Put lasting setting changes in `config/settings.yaml` and push. On a paid plan, add the disk in `render.yaml` (mounted at `/app/data`) and everything persists. |
+| Files reset on every deploy or restart | Without Supabase, the queue, media, logo/music and dashboard setting changes are lost. | **Connect Supabase** (above) and everything is kept. Or, on a paid plan, add the disk in `render.yaml`. With Supabase on, the dashboard is the source of truth for settings: edits pushed to `config/settings.yaml` are overridden by the saved copy, so make changes in the dashboard. |
 | 512 MB RAM | Posts work. Videos can run out of memory (`LOW_MEMORY=1` is already on). | Use the agent on your PC for videos, or move to a 2 GB plan. |
 
 When you upgrade, set the plan in `render.yaml` to `standard` and uncomment the `disk:` block. You don't need to change any code.

@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from . import auth, publishers, scheduler
+from . import auth, publishers, scheduler, storage
 from .config import ASSETS_DIR, CACHE_DIR, MEDIA_DIR, WEEKDAYS, env, events_config, settings, update_yaml
 from .creative.catalog import POST_FORMATS, POST_THEMES, VIDEO_THEMES
 from .db import ContentItem, get_session
@@ -131,12 +131,8 @@ def month_calendar(month: str | None = None, _: str = User):
 
 
 def _media_url(path: str) -> str:
-    if not path:
-        return ""
-    try:
-        return "/media/" + Path(path).resolve().relative_to(MEDIA_DIR.resolve()).as_posix()
-    except ValueError:
-        return ""
+    from . import storage
+    return storage.web_url(path)
 
 
 # ── events ────────────────────────────────────────────────────────────────
@@ -322,6 +318,7 @@ async def upload_logo(file: UploadFile = File(...), _: str = User):
         raise HTTPException(400, "Upload a PNG (transparent background works best)")
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     img.convert("RGBA").save(ASSETS_DIR / "logo.png")
+    storage.persist_brand_file(ASSETS_DIR / "logo.png")
     for d in CACHE_DIR.glob("logo_*"):  # rebuild light/dark variants on next use
         shutil.rmtree(d, ignore_errors=True)
     return _assets()
@@ -337,6 +334,7 @@ async def upload_music(file: UploadFile = File(...), _: str = User):
         raise HTTPException(400, "Track must be under 25 MB")
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     (MUSIC_DIR / name).write_bytes(data)
+    storage.persist_brand_file(MUSIC_DIR / name)
     return _assets()
 
 
@@ -346,6 +344,7 @@ def delete_music(name: str, _: str = User):
     if not f.is_file():
         raise HTTPException(404, "Track not found")
     f.unlink()
+    storage.delete_brand_file(f"music/{f.name}")
     return _assets()
 
 

@@ -1,15 +1,44 @@
-"""SQLite storage for generated content and its approval / publishing state."""
+"""Database for generated content and its approval / publishing state.
+
+- On your PC: SQLite (the agent.db file) – nothing to set up.
+- In the cloud: set DATABASE_URL (e.g. Supabase Postgres) and everything is stored there instead,
+  so it survives restarts on hosts like Render's free plan.
+"""
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Integer, String, Text, create_engine, select
+from sqlalchemy import Date, DateTime, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from .config import DATA_DIR
+from .config import CONFIG_DIR, DATA_DIR, env
 
-engine = create_engine(f"sqlite:///{DATA_DIR / 'agent.db'}", connect_args={"check_same_thread": False})
+log = logging.getLogger(__name__)
+
+
+def database_url() -> str:
+    url = env("DATABASE_URL")
+    if not url:
+        return f"sqlite:///{DATA_DIR / 'agent.db'}"
+    # Supabase / Heroku style URLs -> SQLAlchemy + psycopg 3 driver
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def is_cloud_db() -> bool:
+    return not database_url().startswith("sqlite")
+
+
+if is_cloud_db():
+    # prepare_threshold=None keeps it working through Supabase's connection pooler (PgBouncer)
+    engine = create_engine(database_url(), pool_pre_ping=True, pool_recycle=300, pool_size=5, max_overflow=5,
+                           connect_args={"prepare_threshold": None, "connect_timeout": 15})
+else:
+    engine = create_engine(database_url(), connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
@@ -70,17 +99,62 @@ class ContentItem(Base):
         return [p for p in self.platforms.split(",") if p]
 
 
+class StoredFile(Base):
+    """Copies of config/*.yaml kept in the cloud database, so dashboard edits survive restarts."""
+    __tablename__ = "stored_files"
+
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+_initialized = False
+
+
 def init_db() -> None:
+    global _initialized
+    if _initialized:
+        return
     Base.metadata.create_all(engine)
     # tiny migration for databases created by older versions
+    cols = {c["name"] for c in inspect(engine).get_columns("content_items")}
     with engine.begin() as conn:
-        cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(content_items)")}
         for name, ddl in (("source_url", "VARCHAR(500) DEFAULT ''"), ("notes", "TEXT DEFAULT ''"),
                           ("format", "VARCHAR(40) DEFAULT ''"), ("theme", "VARCHAR(40) DEFAULT ''"),
                           ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''"),
                           ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0")):
             if name not in cols:
-                conn.exec_driver_sql(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}")
+                conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}"))
+    if is_cloud_db():
+        restore_config_files()
+    _initialized = True
+
+
+# ── config files in the cloud DB ───────────────────────────────────────────
+def save_config_file(name: str, content: str) -> None:
+    """Called after every dashboard edit of config/<name> (cloud mode only)."""
+    if not is_cloud_db():
+        return
+    with get_session() as s:
+        row = s.get(StoredFile, name)
+        if row:
+            row.content = content
+        else:
+            s.add(StoredFile(name=name, content=content))
+        s.commit()
+
+
+def restore_config_files() -> None:
+    """On start-up in the cloud: bring back the settings/events edited in the dashboard."""
+    from .config import reload_settings
+    with get_session() as s:
+        rows = s.scalars(select(StoredFile)).all()
+    for row in rows:
+        if row.name.endswith(".yaml") and "/" not in row.name and row.content.strip():
+            (CONFIG_DIR / row.name).write_text(row.content, encoding="utf-8")
+            log.info("restored config/%s from the database", row.name)
+    if rows:
+        reload_settings()
 
 
 def get_session() -> Session:

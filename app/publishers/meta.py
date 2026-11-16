@@ -51,10 +51,10 @@ def facebook_publish(kind: str, media: Path, caption: str) -> str:
     return str(data.get("post_id") or data.get("id"))
 
 
-def instagram_publish(kind: str, media: Path, caption: str) -> str:
+def instagram_publish(kind: str, media: Path, caption: str, url: str | None = None) -> str:
     ig, token = env("META_IG_USER_ID"), env("META_PAGE_ACCESS_TOKEN")
     base = f"https://graph.facebook.com/{_v()}/{ig}"
-    url = public_url(media)
+    url = url or public_url(media)  # cloud storage URL when available, else served by this app
     if "localhost" in url or "127.0.0.1" in url:
         raise RuntimeError("Instagram needs a public media URL – set PUBLIC_BASE_URL to your deployed app URL")
     params = {"caption": caption[:2200], "access_token": token}

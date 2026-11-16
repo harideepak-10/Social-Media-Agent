@@ -35,6 +35,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    from . import storage
+    synced = storage.sync_brand_assets()  # cloud mode: bring back uploaded logo & music
+    if synced:
+        logging.getLogger(__name__).info("downloaded %s brand file(s) from cloud storage", synced)
     if env("DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
         scheduler.start()
     yield
@@ -53,12 +57,8 @@ FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
 
 def media_url(path: str) -> str:
-    if not path:
-        return ""
-    try:
-        return "/media/" + str(Path(path).resolve().relative_to(MEDIA_DIR.resolve()).as_posix())
-    except ValueError:
-        return ""
+    from . import storage
+    return storage.web_url(path)
 
 
 templates.env.globals["media_url"] = media_url

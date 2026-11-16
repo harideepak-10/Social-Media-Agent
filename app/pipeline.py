@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from . import notify, progress, publishers
+from . import notify, progress, publishers, storage
 from .config import env, settings, use_brand
 from .db import ContentItem, get_session
 from .creative import engine, rotation
@@ -74,8 +74,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
                 item.hashtags = gen["hashtags"]
                 item.script_json = gen.get("script_json") or json.dumps(
                     {k: v for k, v in copy.items() if k not in ("captions", "hashtags")}, ensure_ascii=False, indent=2)
-                item.media_path = str(gen["media"])
-                item.thumb_path = str(gen["thumb"])
+                item.media_path, item.thumb_path = _persist_media(gen)
                 item.status, item.stage, item.progress = "pending_approval", "", 100
                 s.commit()
             _notify_new(item)
@@ -90,11 +89,20 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
             return item
 
 
+def _persist_media(gen: dict) -> tuple[str, str]:
+    """Upload finished files to cloud storage when configured; returns (media, thumbnail) references."""
+    if gen.get("media") or gen.get("thumb"):
+        progress.report("Saving files", 98)
+    media = storage.persist(gen["media"])
+    thumb = media if str(gen.get("thumb")) == str(gen.get("media")) else storage.persist(gen.get("thumb"))
+    return media, thumb
+
+
 def _save_creative(item: ContentItem, gen: dict) -> None:
     item.format = gen.get("format", "")
     item.theme = gen.get("theme", "")
     item.product = gen.get("product", "")
-    item.media_alt_path = str(gen["alt"]) if gen.get("alt") else ""
+    item.media_alt_path = storage.persist(gen["alt"]) if gen.get("alt") else ""
     item.error = gen.get("warning", "")
 
 
@@ -161,7 +169,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                 item.hashtags = gen["hashtags"]
                 item.script_json = gen.get("script_json") or json.dumps(
                     {k: v for k, v in copy.items() if k not in ("captions", "hashtags")}, ensure_ascii=False, indent=2)
-                item.media_path, item.thumb_path = str(gen["media"]), str(gen["thumb"])
+                item.media_path, item.thumb_path = _persist_media(gen)
                 item.status, item.stage, item.progress = "pending_approval", "", 100
                 s.commit()
             _notify_new(item)
@@ -180,7 +188,7 @@ def _notify_new(item: ContentItem) -> None:
     notify.telegram(
         f"📝 New <b>{item.kind}</b> for {item.run_date:%a %d %b} waiting for approval\n"
         f"<b>{item.topic}</b>\n{base}/items/{item.id}",
-        photo_path=item.thumb_path or None,
+        photo_path=str(storage.local_file(item.thumb_path)) if item.thumb_path else None,
     )
 
 
@@ -200,9 +208,9 @@ def publish_item(item_id: int) -> ContentItem:
             raise ValueError(f"item #{item_id} is {item.status}, not approved")
         results = item.results
         for platform in item.platform_list:
-            media = Path(item.media_path)
+            media = item.media_path
             if item.media_alt_path and platform in ("instagram", "facebook"):
-                media = Path(item.media_alt_path)  # 9:16 version for Reels
+                media = item.media_alt_path  # 9:16 version for Reels
             if results.get(platform, {}).get("ok") and not results[platform].get("dry_run"):
                 continue  # already posted (retry case)
             results[platform] = publishers.publish(platform, item.kind, media, full_caption(item, platform))

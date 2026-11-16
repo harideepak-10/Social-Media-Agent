@@ -94,6 +94,12 @@ def update_yaml(name: str, patch: dict, replace_keys: tuple[str, ...] = ()) -> d
         with open(tmp, "w", encoding="utf-8") as f:
             y.dump(data, f)
         tmp.replace(path)
+    try:  # cloud mode: keep a copy in the database so the edit survives restarts
+        from .db import save_config_file
+        save_config_file(name, path.read_text(encoding="utf-8"))
+    except Exception as e:  # never block a settings save
+        import logging
+        logging.getLogger(__name__).warning("could not store %s in the database: %s", name, e)
     return reload_settings() if name == "settings.yaml" else _load_yaml(name)
 
 

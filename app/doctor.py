@@ -115,6 +115,25 @@ def _run(full: bool) -> bool:
         except Exception as e:
             results.append(_line(icon_fail, name, f"{url} unreachable ({type(e).__name__})"))
 
+    # Database & cloud storage
+    try:
+        from sqlalchemy import text as _t
+        from .db import engine, is_cloud_db
+        with engine.connect() as conn:
+            conn.execute(_t("SELECT 1"))
+        results.append(_line(OK, "Database", "cloud Postgres (DATABASE_URL)" if is_cloud_db() else "SQLite file agent.db (local)"))
+    except Exception as e:
+        results.append(_line(FAIL, "Database", f"cannot connect: {str(e)[:140]}"))
+    from . import storage
+    if storage.remote_enabled():
+        try:
+            storage._ensure_bucket()
+            results.append(_line(OK, "File storage", f"Supabase bucket '{env('SUPABASE_BUCKET', 'media')}' (public)"))
+        except Exception as e:
+            results.append(_line(FAIL, "File storage", f"Supabase: {str(e)[:140]}"))
+    else:
+        results.append(_line(OK, "File storage", "local media/ folder"))
+
     # Brand assets
     logo = ASSETS_DIR / "logo.png"
     results.append(_line(OK if logo.exists() else WARN, "Logo",

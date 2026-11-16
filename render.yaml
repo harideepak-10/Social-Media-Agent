@@ -30,6 +30,15 @@ services:
         value: edge
       - key: DATA_DIR            # put a persistent disk here on a paid plan (see README)
         value: /app/data
+      # Supabase (free) – keeps the queue, history, settings and media safe across restarts
+      - key: DATABASE_URL        # Supabase → Connect → Session pooler URI (port 5432)
+        sync: false
+      - key: SUPABASE_URL        # https://<project-ref>.supabase.co
+        sync: false
+      - key: SUPABASE_SERVICE_KEY  # Supabase → Project Settings → API keys → service_role / secret key
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: media
     # Paid plan only – keeps the queue, media and settings across deploys:
     # disk:
     #   name: agent-data

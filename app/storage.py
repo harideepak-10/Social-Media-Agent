@@ -109,3 +109,177 @@ def organize_existing() -> int:
             except OSError:
                 pass
     return moved
+
+
+# ── Cloud file storage (Supabase Storage) ─────────────────────────────────
+# Set SUPABASE_URL + SUPABASE_SERVICE_KEY (+ optional SUPABASE_BUCKET, default "media") and every finished
+# poster/video/thumbnail is uploaded to a public bucket. The database then stores the public URL, so
+# files survive restarts and Instagram can fetch them directly. Without these settings files stay local.
+import logging as _logging
+import mimetypes as _mt
+
+import httpx as _httpx
+
+from .config import ASSETS_DIR, env
+
+_log = _logging.getLogger(__name__)
+_bucket_ready = False
+
+
+def remote_enabled() -> bool:
+    return bool(env("SUPABASE_URL") and env("SUPABASE_SERVICE_KEY"))
+
+
+def _sb() -> tuple[str, str, dict]:
+    base = env("SUPABASE_URL").rstrip("/")
+    key = env("SUPABASE_SERVICE_KEY")
+    headers = {"apikey": key}
+    if key.startswith("eyJ"):  # classic service_role JWT; new sb_secret_… keys go in the apikey header only
+        headers["Authorization"] = f"Bearer {key}"
+    return base, env("SUPABASE_BUCKET", "media"), headers
+
+
+def _ensure_bucket() -> None:
+    global _bucket_ready
+    if _bucket_ready:
+        return
+    base, bucket, h = _sb()
+    r = _httpx.get(f"{base}/storage/v1/bucket/{bucket}", headers=h, timeout=30)
+    if r.status_code == 200:
+        if not r.json().get("public"):
+            _httpx.put(f"{base}/storage/v1/bucket/{bucket}", headers=h, timeout=30,
+                       json={"id": bucket, "name": bucket, "public": True})
+    else:
+        r = _httpx.post(f"{base}/storage/v1/bucket", headers=h, timeout=30,
+                        json={"id": bucket, "name": bucket, "public": True})
+        if r.status_code >= 400 and "already exists" not in r.text.lower():
+            raise RuntimeError(f"Supabase: could not create bucket '{bucket}': {r.status_code} {r.text[:200]}")
+    _bucket_ready = True
+
+
+def remote_url(key: str) -> str:
+    base, bucket, _ = _sb()
+    return f"{base}/storage/v1/object/public/{bucket}/{key}"
+
+
+def upload(local: Path, key: str) -> str:
+    """Upload a file to the bucket (overwrites) and return its public URL."""
+    _ensure_bucket()
+    base, bucket, h = _sb()
+    ctype = _mt.guess_type(local.name)[0] or "application/octet-stream"
+    with open(local, "rb") as f:
+        r = _httpx.post(f"{base}/storage/v1/object/{bucket}/{key}", content=f.read(), timeout=600,
+                        headers={**h, "Content-Type": ctype, "x-upsert": "true", "cache-control": "3600"})
+    if r.status_code >= 400:
+        raise RuntimeError(f"Supabase upload failed for {key}: {r.status_code} {r.text[:300]}")
+    return remote_url(key)
+
+
+def delete_remote(key: str) -> None:
+    if not remote_enabled():
+        return
+    base, bucket, h = _sb()
+    _httpx.request("DELETE", f"{base}/storage/v1/object/{bucket}", headers=h, json={"prefixes": [key]}, timeout=60)
+
+
+def list_remote(prefix: str) -> list[str]:
+    _ensure_bucket()
+    base, bucket, h = _sb()
+    r = _httpx.post(f"{base}/storage/v1/object/list/{bucket}", headers=h, timeout=60,
+                    json={"prefix": prefix, "limit": 1000, "offset": 0})
+    r.raise_for_status()
+    return [f"{prefix.rstrip('/')}/{o['name']}" for o in r.json() if o.get("id")]  # folders have no id
+
+
+def persist(path: Path | str | None) -> str:
+    """Finished media file -> what the database stores: a public URL (cloud) or the local path."""
+    if not path:
+        return ""
+    p = Path(path)
+    if not remote_enabled() or not p.is_file():
+        return str(path)
+    try:
+        key = p.resolve().relative_to(MEDIA_DIR.resolve()).as_posix()
+    except ValueError:
+        key = f"misc/{p.name}"
+    try:
+        return upload(p, key)
+    except Exception as e:  # keep working locally if the upload fails
+        _log.warning("upload to Supabase failed, keeping local file: %s", e)
+        return str(path)
+
+
+def is_url(ref: str | None) -> bool:
+    return bool(ref) and str(ref).startswith(("http://", "https://"))
+
+
+def local_file(ref: str | Path) -> Path:
+    """A local copy of a stored media file (downloads it from the bucket if needed)."""
+    if not is_url(str(ref)):
+        return Path(ref)
+    name = str(ref).split("/storage/v1/object/public/", 1)[-1].split("/", 1)[-1]
+    dest = WORK_DIR / "downloads" / name
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with _httpx.stream("GET", str(ref), timeout=600, follow_redirects=True) as r:
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_bytes():
+                    f.write(chunk)
+    return dest
+
+
+def web_url(ref: str | None) -> str:
+    """URL the dashboard uses: the public cloud URL, or /media/… for local files."""
+    if not ref:
+        return ""
+    if is_url(ref):
+        return str(ref)
+    try:
+        return "/media/" + Path(ref).resolve().relative_to(MEDIA_DIR.resolve()).as_posix()
+    except ValueError:
+        return ""
+
+
+def display_path(ref: str | None, data_dir: Path) -> str:
+    """Where a file lives, for people: media/posters/… or supabase:media/posters/…"""
+    if not ref:
+        return ""
+    if is_url(ref):
+        return "supabase: " + str(ref).split("/storage/v1/object/public/", 1)[-1]
+    try:
+        return Path(ref).resolve().relative_to(data_dir.resolve()).as_posix()
+    except ValueError:
+        return Path(ref).name
+
+
+# brand assets (logo + music) — also kept in the bucket in cloud mode
+def persist_brand_file(local: Path) -> None:
+    if remote_enabled():
+        rel = local.resolve().relative_to(ASSETS_DIR.resolve()).as_posix()
+        upload(local, f"brand/{rel}")
+
+
+def delete_brand_file(rel: str) -> None:
+    delete_remote(f"brand/{rel}")
+
+
+def sync_brand_assets() -> int:
+    """On start-up in the cloud: download the logo and music uploaded earlier."""
+    if not remote_enabled():
+        return 0
+    n = 0
+    try:
+        keys = list_remote("brand") + list_remote("brand/music")
+        for key in keys:
+            rel = key.split("/", 1)[1]
+            dest = ASSETS_DIR / rel
+            if dest.suffix and not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                r = _httpx.get(remote_url(key), timeout=300)
+                if r.status_code == 200:
+                    dest.write_bytes(r.content)
+                    n += 1
+    except Exception as e:
+        _log.warning("brand asset sync from Supabase failed: %s", e)
+    return n

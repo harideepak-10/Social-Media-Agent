@@ -26,22 +26,14 @@ def _bg(fn, *args, **kw):
 
 
 def media_url(path: str) -> str:
-    if not path:
-        return ""
-    try:
-        return "/media/" + Path(path).resolve().relative_to(MEDIA_DIR.resolve()).as_posix()
-    except ValueError:
-        return ""
+    from . import storage
+    return storage.web_url(path)
 
 
 def saved_as(path: str) -> str:
-    """Path relative to the project/data folder, e.g. media/posters/2026-11-18_clinic_myth-fact_7.jpg"""
-    if not path:
-        return ""
-    try:
-        return Path(path).resolve().relative_to(DATA_DIR.resolve()).as_posix()
-    except ValueError:
-        return Path(path).name
+    """e.g. media/posters/2026-11-18_clinic_myth-fact_7.jpg  (or supabase: media/posters/… in the cloud)"""
+    from . import storage
+    return storage.display_path(path, DATA_DIR)
 
 
 def serialize(i: ContentItem, full: bool = False) -> dict:
