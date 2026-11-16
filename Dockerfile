@@ -8,8 +8,8 @@ RUN npm run build
 
 # 2) the agent (Playwright image already has Chromium's system libraries)
 FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DATA_DIR=/app/data PORT=8000
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu fonts-noto-color-emoji \
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DATA_DIR=/app/data PORT=8000 TZ=Asia/Kolkata
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg tzdata fonts-dejavu fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
