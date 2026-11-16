@@ -44,7 +44,14 @@ def duration(path: Path) -> float:
         raise FFmpegError(f"could not read duration of {path}: {proc.stderr}") from e
 
 
-VIDEO_OUT = ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+def low_memory() -> bool:
+    """LOW_MEMORY=1 on small servers (e.g. Render free, 512 MB): lighter encoding settings."""
+    import os
+    return os.getenv("LOW_MEMORY", "").strip().lower() in ("1", "true", "yes")
+
+
+X264 = (["-preset", "veryfast", "-threads", "2"] if low_memory() else ["-preset", "medium"])
+VIDEO_OUT = ["-c:v", "libx264", *X264, "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
              "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"]
 
 

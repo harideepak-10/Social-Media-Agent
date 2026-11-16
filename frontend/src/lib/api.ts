@@ -101,11 +101,36 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+// Free hosting sleeps when idle: the first request can fail with 502/503/504 while the
+// server boots (~1 min). Retry quietly and let the UI show a "waking up" banner.
+const WAKE_CODES = new Set([502, 503, 504]);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let waking = false;
+function setWaking(v: boolean) {
+  if (waking !== v) { waking = v; window.dispatchEvent(new CustomEvent("dma:waking", { detail: v })); }
+}
+
+async function fetchWithWake(path: string, init: RequestInit): Promise<Response> {
+  const safe = !init.method || init.method === "GET";
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(path, init);
+      if (WAKE_CODES.has(res.status) && attempt < (safe ? 8 : 4)) { setWaking(true); await sleep(8000); continue; }
+      setWaking(false);
+      return res;
+    } catch (e) {
+      if (attempt >= 8) { setWaking(false); throw e; }
+      setWaking(true);
+      await sleep(8000);
+    }
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (auth.token) headers.set("Authorization", `Bearer ${auth.token}`);
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetchWithWake(path, { ...init, headers });
   if (res.status === 401 && path !== "/api/login") {
     auth.clear();
     window.dispatchEvent(new Event("dma:logout"));

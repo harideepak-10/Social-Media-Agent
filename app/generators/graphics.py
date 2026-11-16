@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from ..config import ASSETS_DIR, BASE_DIR, company
+from ..config import ASSETS_DIR, DATA_DIR, company
 
 _FONT_CANDIDATES = {
     True: [  # bold
@@ -105,7 +105,7 @@ def draw_lines(draw, lines, fnt, x, y, fill, center_width=None, spacing=1.15, sh
 
 
 def paste_logo(img: Image.Image, pos="top-left", max_h=90, margin=60) -> None:
-    path = BASE_DIR / (company().get("logo_path") or "")
+    path = DATA_DIR / (company().get("logo_path") or "")
     if path.is_file():
         logo = Image.open(path).convert("RGBA")
         ratio = max_h / logo.height

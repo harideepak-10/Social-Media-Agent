@@ -195,3 +195,28 @@ export function Modal({ open, title, onClose, children, footer }: {
     </div>
   );
 }
+
+/** Shown while the free backend is waking up (see fetchWithWake in lib/api.ts). */
+export function WakeBanner() {
+  const [on, setOn] = useState(false);
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const h = (e: Event) => { setOn((e as CustomEvent<boolean>).detail); setSecs(0); };
+    window.addEventListener("dma:waking", h);
+    return () => window.removeEventListener("dma:waking", h);
+  }, []);
+  useEffect(() => {
+    if (!on) return;
+    const t = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [on]);
+  if (!on) return null;
+  return (
+    <div className="fixed inset-x-0 top-0 z-[60] flex justify-center p-3">
+      <div className="flex items-center gap-3 rounded-full bg-ink-900 px-5 py-2.5 text-sm text-white shadow-xl">
+        <Loader2 className="size-4 animate-spin text-amber-400" />
+        Waking up the server… free hosting sleeps when idle · {secs}s
+      </div>
+    </div>
+  );
+}

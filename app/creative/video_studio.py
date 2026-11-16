@@ -306,7 +306,7 @@ def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out:
     """Render each HTML scene frame-by-frame (animations seeked precisely) and pipe JPEGs into ffmpeg."""
     w, h = size
     cmd = [ffmpeg.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(fps),
-           "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+           "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", *ffmpeg.X264, "-crf", "18", "-pix_fmt", "yuv420p",
            "-r", str(fps), str(out)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     total_frames = sum(int(round(d * fps)) for _, d in scenes) or 1

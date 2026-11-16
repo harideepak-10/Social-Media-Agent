@@ -198,10 +198,36 @@ With `always_post_on_festivals: true`, a festival on a `none` day still gets a g
 ### Telegram alerts (optional)
 Create a bot with @BotFather, then fill in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. You'll get the image or thumbnail and a dashboard link for each new item.
 
-## 5. Deploy (needs to run 24/7 for the schedule)
-- **Docker**: `docker build -t dma . && docker run -p 8000:8000 --env-file .env -v ./media:/app/media dma`
-- **Render**: create a *Web Service → Docker*. Note: the **free plan sleeps** after 15 minutes idle, so scheduled jobs won't fire. Use a paid instance, or ping `/health` every 10 minutes (cron-job.org). The app also catches up on missing content at start-up. Render's free disk is wiped on deploy, so use a persistent disk for `media/` and `agent.db`.
-- Or run it on any always-on PC or VPS with `python cli.py serve`.
+## 5. Deploy: frontend on Netlify, backend on Render
+
+```
+Browser ──► Netlify (React dashboard)
+              │  /api, /media, /brand are forwarded ──►  Render (Docker: FastAPI + scheduler + Chromium + ffmpeg)
+```
+Netlify forwards the API, so the browser only ever talks to Netlify. No CORS setup and no API URL to configure.
+
+### Backend → Render
+1. Push the repo to GitHub.
+2. On render.com, choose **New → Blueprint** and pick the repo. Render reads `render.yaml`.
+3. When asked, fill in:
+   - `ANTHROPIC_API_KEY`
+   - `DASHBOARD_PASSWORD`
+   - `PUBLIC_BASE_URL` (your Render URL, e.g. `https://social-media-agent.onrender.com`; you can add it after the first deploy)
+4. Deploy. The first build takes about 10 minutes because it includes the Chromium image. Then open `https://<your-app>.onrender.com/health`; it should return `{"ok": true}`.
+
+### Frontend → Netlify
+1. If your Render URL is different from `social-media-agent.onrender.com`, replace it in **all three** proxy rules in `netlify.toml` and push.
+2. On app.netlify.com, choose **Add new site → Import from Git** and pick the repo. Netlify reads `netlify.toml` (base `frontend`, build `npm ci && npm run build`, publish `dist`).
+3. Deploy, open the Netlify URL and log in with `DASHBOARD_USER` / `DASHBOARD_PASSWORD`.
+
+### Render free plan: limits and workarounds
+| Limit | What it means | Workaround |
+|---|---|---|
+| Sleeps after 15 min with no visits | The 18:00 preparation and 10:00 publishing don't run while it sleeps. The first visit takes about a minute (the dashboard shows "Waking up the server…"). | Create a free job on cron-job.org that opens `https://<your-app>.onrender.com/health` every 10 minutes. 750 free hours a month covers one service 24/7. |
+| Files reset on every deploy or restart | The queue, generated media, uploaded logo/music and dashboard setting changes are lost. Settings fall back to `config/*.yaml` in the repo. | Put lasting setting changes in `config/settings.yaml` and push. On a paid plan, add the disk in `render.yaml` (mounted at `/app/data`) and everything persists. |
+| 512 MB RAM | Posts work. Videos can run out of memory (`LOW_MEMORY=1` is already on). | Use the agent on your PC for videos, or move to a 2 GB plan. |
+
+When you upgrade, set the plan in `render.yaml` to `standard` and uncomment the `disk:` block. You don't need to change any code.
 
 ## 6. Tuning for reach
 - Keep videos at 30–45 s (`video.max_seconds`). The first 2 seconds (hook card) decide retention.

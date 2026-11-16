@@ -31,6 +31,11 @@ VIEWPORTS = {
 }
 
 
+# Smaller memory footprint in containers (Render/Docker); harmless on a PC.
+CHROMIUM_ARGS = ["--disable-dev-shm-usage", "--disable-gpu", "--no-zygote", "--disable-extensions",
+                 "--disable-background-networking", "--js-flags=--max-old-space-size=256"]
+
+
 class LoginRequired(RuntimeError):
     pass
 
@@ -92,7 +97,7 @@ def warmup() -> None:
 def browser_context(orientation: str | None = None, headless: bool = True, **extra):
     """Chromium context with the saved login session; saves refreshed session on exit."""
     with sync_playwright() as p:
-        b = p.chromium.launch(headless=headless)
+        b = p.chromium.launch(headless=headless, args=CHROMIUM_ARGS)
         opts = dict(extra)
         if orientation:
             cfg = VIEWPORTS.get(orientation, VIEWPORTS["vertical"])

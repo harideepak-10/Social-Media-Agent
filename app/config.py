@@ -12,15 +12,27 @@ import yaml
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_DIR = BASE_DIR / "config"
-MEDIA_DIR = BASE_DIR / "media"
-ASSETS_DIR = BASE_DIR / "assets"
-CACHE_DIR = BASE_DIR / ".cache"
+load_dotenv(BASE_DIR / ".env")
 
-for _d in (MEDIA_DIR, CACHE_DIR):
+# DATA_DIR: where everything that changes lives (database, media, settings edits, logo, music, cache).
+# Default = the project folder. On a server, point it at a persistent disk, e.g. DATA_DIR=/var/data
+DATA_DIR = Path(os.getenv("DATA_DIR", "").strip() or BASE_DIR)
+CONFIG_DIR = DATA_DIR / "config"
+MEDIA_DIR = DATA_DIR / "media"
+ASSETS_DIR = DATA_DIR / "assets"
+CACHE_DIR = DATA_DIR / ".cache"
+
+for _d in (MEDIA_DIR, CACHE_DIR, CONFIG_DIR, ASSETS_DIR / "music", ASSETS_DIR / "fonts"):
     _d.mkdir(parents=True, exist_ok=True)
 
-load_dotenv(BASE_DIR / ".env")
+if DATA_DIR != BASE_DIR:  # first start on a fresh disk: copy the default config & assets from the repo
+    import shutil as _sh
+    for _src_dir, _dst_dir in ((BASE_DIR / "config", CONFIG_DIR), (BASE_DIR / "assets", ASSETS_DIR)):
+        for _f in _src_dir.rglob("*"):
+            _dst = _dst_dir / _f.relative_to(_src_dir)
+            if _f.is_file() and not _dst.exists():
+                _dst.parent.mkdir(parents=True, exist_ok=True)
+                _sh.copy2(_f, _dst)
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 

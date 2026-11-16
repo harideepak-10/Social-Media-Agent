@@ -1,0 +1,12 @@
+.env
+.git
+.venv
+venv
+agent.db
+media
+.cache
+__pycache__
+*.pyc
+frontend/node_modules
+frontend/dist
+Claude outputs

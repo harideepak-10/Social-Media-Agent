@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 from PIL import Image
 
-from ..config import ASSETS_DIR, BASE_DIR, CACHE_DIR, env, settings
+from ..config import ASSETS_DIR, CACHE_DIR, DATA_DIR, env, settings
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def capture_logo(url: str, out: Path) -> Path | None:
 
 def brand_logo(brand: dict) -> dict | None:
     """Logo variants for the brand in use: configured logo_path, else captured from its website."""
-    configured = BASE_DIR / (brand.get("logo_path") or "") if brand.get("logo_path") else None
+    configured = DATA_DIR / (brand.get("logo_path") or "") if brand.get("logo_path") else None
     key = hashlib.md5((brand.get("website") or brand.get("name", "")).encode()).hexdigest()[:10]
     out_dir = CACHE_DIR / f"logo_{key}"
     if configured and configured.is_file():

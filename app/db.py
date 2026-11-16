@@ -7,9 +7,9 @@ from datetime import date, datetime
 from sqlalchemy import Date, DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from .config import BASE_DIR
+from .config import DATA_DIR
 
-engine = create_engine(f"sqlite:///{BASE_DIR / 'agent.db'}", connect_args={"check_same_thread": False})
+engine = create_engine(f"sqlite:///{DATA_DIR / 'agent.db'}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
