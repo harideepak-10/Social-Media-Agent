@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  ArrowDown, ArrowUp, CalendarPlus, ChevronLeft, ChevronRight, Clock, Film, ImageIcon, Moon, Pencil, PartyPopper, Trash2,
+  ArrowDown, ArrowUp, CalendarPlus, ChevronLeft, ChevronRight, Clock, Film, ImageIcon, Moon, Pencil, Trash2,
 } from "lucide-react";
 import { api, WEEKDAYS, type CalDay, type CalEvent, type Kind, type Schedule as TSchedule } from "../lib/api";
 import { STATUS, fmtDate } from "../lib/ui";
 import { Button, Card, Confirm, Field, Modal, SaveBar, Switch, inputCls, useToast } from "../components/ui";
+import OccasionsCard, { OCC_STATUS } from "../components/Occasions";
 
 const KIND_OPTS: { id: Kind; label: string; icon: typeof Film }[] = [
   { id: "video", label: "Video", icon: Film },
@@ -121,8 +122,8 @@ export default function Schedule() {
               </ol>
               <div className="mt-5 space-y-4 border-t border-stone-100 pt-5">
                 <Switch checked={draft.always_post_on_festivals} onChange={(v) => set("always_post_on_festivals", v)}
-                  label="Festival greetings on days off" sub="If a festival falls on an 'Off' day, still make a greeting post." />
-                <Field label="Post festival wishes">
+                  label="Greetings on days off" sub="If an approved festival or special day falls on an 'Off' day, still make the greeting post." />
+                <Field label="Default timing for greetings" hint="You can change it per festival in the list below.">
                   <select value={draft.festival_lookahead_days} onChange={(e) => set("festival_lookahead_days", Number(e.target.value))} className={inputCls}>
                     <option value={0}>On the day</option>
                     <option value={1}>1 day early (recommended)</option>
@@ -137,6 +138,7 @@ export default function Schedule() {
       )}
 
       <MonthCalendar />
+      <OccasionsCard />
       <EventsCard />
     </div>
   );
@@ -191,11 +193,16 @@ function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () 
           </span>
         ) : <span className="text-[10px] font-semibold uppercase text-stone-300">off</span>}
       </div>
-      {day.festivals.slice(0, 2).map((f) => (
-        <div key={f} title={f} className="truncate rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">🎉 {f}</div>
+      {day.occasions.slice(0, 2).map((o) => (
+        <div key={o.name} title={`${o.name} – ${OCC_STATUS[o.status].label}`}
+          className={clsx("truncate rounded px-1.5 py-0.5 text-[11px] font-medium",
+            o.status === "approved" ? "bg-emerald-50 text-emerald-800" : o.status === "pending" ? "bg-amber-50 text-amber-800" : "bg-stone-100 text-stone-400 line-through")}>
+          {o.status === "approved" ? "✅" : o.status === "pending" ? "⏳" : "✕"} {o.name}
+        </div>
       ))}
       {day.events.map((e) => (
-        <div key={e.id} title={e.details} className="truncate rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-800">📌 {e.title}</div>
+        <div key={e.id} title={e.details} className={clsx("truncate rounded px-1.5 py-0.5 text-[11px] font-medium",
+          e.paused ? "bg-stone-100 text-stone-400 line-through" : "bg-violet-50 text-violet-800")}>📌 {e.title}</div>
       ))}
       <div className="mt-auto flex flex-wrap gap-1">
         {day.items.map((it) => (
@@ -220,7 +227,8 @@ function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () 
 function Legend() {
   return (
     <div className="mr-3 hidden items-center gap-3 text-xs text-stone-500 lg:flex">
-      <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-400" />Festival</span>
+      <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-400" />Will post</span>
+      <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-400" />Waiting for you</span>
       <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-violet-400" />Your event</span>
       <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-500" />Needs review</span>
       <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-500" />Approved</span>
@@ -246,7 +254,7 @@ function EventsCard() {
   const past = (data?.events ?? []).filter((e) => e.date < today);
 
   return (
-    <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+    <div className="mt-6">
       <Card className="p-6">
         <div className="flex items-center justify-between">
           <div>
@@ -271,19 +279,6 @@ function EventsCard() {
           </details>
         )}
       </Card>
-      <Card className="p-6">
-        <h2 className="flex items-center gap-2 font-bold"><PartyPopper className="size-4 text-amber-500" /> Special days</h2>
-        <p className="mt-1 text-xs text-stone-500">Added on top of Indian public holidays and festivals (edit in <code className="rounded bg-stone-100 px-1">config/events.yaml</code>).</p>
-        <ul className="mt-4 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
-          {(data?.special_days ?? []).map((d) => (
-            <li key={d.date} className="flex items-center gap-2 text-sm">
-              <span className="w-14 shrink-0 font-mono text-xs text-stone-400">{new Date(`2000-${d.date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</span>
-              <span className="truncate">{d.name}</span>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
       <EventModal open={adding || !!editing} initial={editing ?? (adding ? { date: today, title: "", details: "", remind_days_before: 0 } : null)}
         id={editing?.id} onClose={() => { setAdding(false); setEditing(null); }} />
       <Confirm open={!!deleting} title="Delete this event?" body={deleting?.title} confirmLabel="Delete" variant="danger"
@@ -300,7 +295,7 @@ function EventRow({ e, onEdit, onDelete }: { e: CalEvent; onEdit: () => void; on
         <div className="text-lg font-extrabold leading-none">{Number(e.date.slice(8))}</div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="font-semibold">{e.title}</div>
+        <div className="font-semibold">{e.title} {e.paused && <span className="ml-1 rounded bg-stone-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-stone-500">paused</span>}</div>
         {e.details && <div className="mt-0.5 line-clamp-2 text-sm text-stone-500">{e.details}</div>}
         <div className="mt-1 text-xs text-stone-400">{e.remind_days_before ? `Announced from ${e.remind_days_before} day${e.remind_days_before > 1 ? "s" : ""} before` : "Announced on the day"}</div>
       </div>

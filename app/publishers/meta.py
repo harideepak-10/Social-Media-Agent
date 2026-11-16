@@ -28,23 +28,32 @@ def _check(r: httpx.Response) -> dict:
     return data
 
 
+def _creds() -> dict:
+    from ..connections import meta_creds
+    return meta_creds()
+
+
 def fb_configured() -> bool:
-    return bool(env("META_PAGE_ID") and env("META_PAGE_ACCESS_TOKEN"))
+    c = _creds()
+    return bool(c.get("page_id") and c.get("page_token"))
 
 
 def ig_configured() -> bool:
-    return bool(env("META_IG_USER_ID") and env("META_PAGE_ACCESS_TOKEN"))
+    c = _creds()
+    return bool(c.get("ig_user_id") and c.get("page_token"))
 
 
 def facebook_publish(kind: str, media: Path, caption: str) -> str:
-    page, token = env("META_PAGE_ID"), env("META_PAGE_ACCESS_TOKEN")
+    from ..connections import graph_base, graph_video_base
+    c_ = _creds()
+    page, token = c_["page_id"], c_["page_token"]
     with httpx.Client(timeout=600) as c, open(media, "rb") as f:
         if kind == "video":
-            r = c.post(f"https://graph-video.facebook.com/{_v()}/{page}/videos",
+            r = c.post(f"{graph_video_base()}/{page}/videos",
                        data={"description": caption, "access_token": token},
                        files={"source": (media.name, f, "video/mp4")})
         else:
-            r = c.post(f"https://graph.facebook.com/{_v()}/{page}/photos",
+            r = c.post(f"{graph_base()}/{page}/photos",
                        data={"caption": caption, "access_token": token},
                        files={"source": (media.name, f, "image/jpeg")})
     data = _check(r)
@@ -52,8 +61,10 @@ def facebook_publish(kind: str, media: Path, caption: str) -> str:
 
 
 def instagram_publish(kind: str, media: Path, caption: str, url: str | None = None) -> str:
-    ig, token = env("META_IG_USER_ID"), env("META_PAGE_ACCESS_TOKEN")
-    base = f"https://graph.facebook.com/{_v()}/{ig}"
+    from ..connections import graph_base
+    c_ = _creds()
+    ig, token = c_["ig_user_id"], c_["page_token"]
+    base = f"{graph_base()}/{ig}"
     url = url or public_url(media)  # cloud storage URL when available, else served by this app
     if "localhost" in url or "127.0.0.1" in url:
         raise RuntimeError("Instagram needs a public media URL – set PUBLIC_BASE_URL to your deployed app URL")
@@ -66,7 +77,7 @@ def instagram_publish(kind: str, media: Path, caption: str, url: str | None = No
         container = _check(c.post(f"{base}/media", data=params))["id"]
         # wait until Instagram has processed the media
         for _ in range(60):
-            st = _check(c.get(f"https://graph.facebook.com/{_v()}/{container}",
+            st = _check(c.get(f"{graph_base()}/{container}",
                               params={"fields": "status_code,status", "access_token": token}))
             if st.get("status_code") == "FINISHED":
                 break

@@ -14,16 +14,28 @@ import httpx
 
 from ..config import env
 
-API = "https://api.linkedin.com/rest"
+def _creds() -> dict:
+    from ..connections import linkedin_creds
+    return linkedin_creds()
+
+
+def _token() -> str:
+    return _creds().get("access_token", "")
 
 
 def configured() -> bool:
-    return bool(env("LINKEDIN_ACCESS_TOKEN") and env("LINKEDIN_ORG_ID"))
+    c = _creds()
+    return bool(c.get("access_token") and c.get("org_id"))
+
+
+def _api() -> str:
+    from ..connections import li_api_base
+    return li_api_base()
 
 
 def _headers(json_body: bool = True) -> dict:
     h = {
-        "Authorization": f"Bearer {env('LINKEDIN_ACCESS_TOKEN')}",
+        "Authorization": f"Bearer {_token()}",
         "LinkedIn-Version": env("LINKEDIN_API_VERSION", "202510"),
         "X-Restli-Protocol-Version": "2.0.0",
     }
@@ -39,20 +51,20 @@ def _check(r: httpx.Response) -> httpx.Response:
 
 
 def _owner() -> str:
-    return f"urn:li:organization:{env('LINKEDIN_ORG_ID')}"
+    return f"urn:li:organization:{_creds().get('org_id', '')}"
 
 
 def _upload_image(c: httpx.Client, media: Path) -> str:
-    init = _check(c.post(f"{API}/images?action=initializeUpload", headers=_headers(),
+    init = _check(c.post(f"{_api()}/images?action=initializeUpload", headers=_headers(),
                          json={"initializeUploadRequest": {"owner": _owner()}})).json()["value"]
     _check(c.put(init["uploadUrl"], content=media.read_bytes(),
-                 headers={"Authorization": f"Bearer {env('LINKEDIN_ACCESS_TOKEN')}"}))
+                 headers={"Authorization": f"Bearer {_token()}"}))
     return init["image"]
 
 
 def _upload_video(c: httpx.Client, media: Path) -> str:
     size = media.stat().st_size
-    init = _check(c.post(f"{API}/videos?action=initializeUpload", headers=_headers(), json={
+    init = _check(c.post(f"{_api()}/videos?action=initializeUpload", headers=_headers(), json={
         "initializeUploadRequest": {"owner": _owner(), "fileSizeBytes": size,
                                     "uploadCaptions": False, "uploadThumbnail": False}})).json()["value"]
     video_urn = init["video"]
@@ -64,12 +76,12 @@ def _upload_video(c: httpx.Client, media: Path) -> str:
             r = _check(c.put(part["uploadUrl"], content=chunk,
                              headers={"Content-Type": "application/octet-stream"}))
             etags.append(r.headers.get("etag", "").strip('"'))
-    _check(c.post(f"{API}/videos?action=finalizeUpload", headers=_headers(), json={
+    _check(c.post(f"{_api()}/videos?action=finalizeUpload", headers=_headers(), json={
         "finalizeUploadRequest": {"video": video_urn, "uploadToken": init.get("uploadToken", ""),
                                   "uploadedPartIds": etags}}))
     # wait for processing
     for _ in range(60):
-        st = _check(c.get(f"{API}/videos/{quote(video_urn, safe='')}", headers=_headers()))
+        st = _check(c.get(f"{_api()}/videos/{quote(video_urn, safe='')}", headers=_headers()))
         status = st.json().get("status")
         if status == "AVAILABLE":
             break
@@ -80,6 +92,11 @@ def _upload_video(c: httpx.Client, media: Path) -> str:
 
 
 def publish(kind: str, media: Path, caption: str, title: str = "") -> str:
+    try:
+        from ..connections import linkedin_refresh_if_needed
+        linkedin_refresh_if_needed()
+    except Exception:
+        pass  # the post attempt below reports a clear error if the token is invalid
     with httpx.Client(timeout=600) as c:
         urn = _upload_video(c, media) if kind == "video" else _upload_image(c, media)
         body = {
@@ -91,7 +108,7 @@ def publish(kind: str, media: Path, caption: str, title: str = "") -> str:
             "lifecycleState": "PUBLISHED",
             "isReshareDisabledByAuthor": False,
         }
-        r = _check(c.post(f"{API}/posts", headers=_headers(), json=body))
+        r = _check(c.post(f"{_api()}/posts", headers=_headers(), json=body))
     return r.headers.get("x-restli-id", "")
 
 

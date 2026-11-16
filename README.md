@@ -166,6 +166,22 @@ What happens each day:
 
 **When you're ready to really post:** add the Meta/LinkedIn keys (section 4) and set `PUBLIC_BASE_URL` to a public address. Instagram fetches media from a URL, so you'll need either a tunnel (cloudflared/ngrok) or a hosted server.
 
+## 2c. Festivals & special days need your OK
+**Schedule → Festivals & special days** lists the next 90 days. Nothing festive is posted unless it says **Will post**.
+- **Festivals** come from the Indian holidays calendar.
+  - Diwali, Pongal, Christmas, Independence Day, Republic Day, New Year and Gandhi Jayanti start as *always post*.
+  - Everything else waits for you: ✅ Post or ❌ Skip.
+- **Special days** (Engineers' Day, Science Day…) work the same way. Days you add yourself are approved automatically and repeat every year.
+- **AI suggestions:** "Suggest days for my products" proposes fitting days, e.g. World Health Day for Clinic. They're only posted if you accept them.
+- **Your events** are approved by default. Pause one to stop it being announced.
+- **Options per day (⌄):**
+  - Remember every year: Always / Never / Ask me.
+  - When: on the day, 1 or 2 days early.
+  - A note for the AI, e.g. "mention our Pongal offer".
+- **Reminders:** undecided days in the next week show as a banner on the Content queue, plus a Telegram reminder if it's set up.
+
+Undecided or skipped days get the normal product/trend post. The calendar shows ✅ will post, ⏳ waiting, ✕ skipped.
+
 ## 3. Weekly schedule
 
 Set this in the dashboard (**Weekly schedule**) or in `settings.yaml`:
@@ -177,6 +193,18 @@ publish_time:  "10:00"   # post approved content
 With `always_post_on_festivals: true`, a festival on a `none` day still gets a greeting post.
 
 ## 4. Connect the social accounts
+
+**Easiest: in the dashboard, go to Settings → Connections.** For each platform:
+1. **Set up your app (one time).** Paste the Meta App ID/secret or the LinkedIn Client ID/secret. The dialog shows the exact steps and the **redirect URL** to copy into the app.
+2. **Connect with Facebook / LinkedIn.** Log in, pick your company Page, done.
+   - Instagram is connected automatically when the Facebook Page has an Instagram Business account linked.
+   - LinkedIn access renews itself when LinkedIn provides a refresh token. Otherwise the page warns you 10 days before it expires.
+3. **Test connection** checks that everything is ready to post.
+
+Tokens are stored encrypted in the database. "Enter tokens manually" is there if you already have tokens. The `.env` values below also still work as a fallback.
+`PUBLIC_BASE_URL` must be your public address (e.g. the Render URL) for the login redirect and for Instagram.
+
+The manual way (tokens in `.env`) and what each app needs:
 
 ### Facebook + Instagram (one Meta app covers both)
 1. Convert Instagram to a **Business/Creator account** and link it to your **Facebook Page** (Instagram → Settings → Account type / Linked Page).

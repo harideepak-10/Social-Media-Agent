@@ -16,6 +16,11 @@ _scheduler: BackgroundScheduler | None = None
 
 
 def _generate_tomorrow():
+    try:
+        from . import occasions
+        occasions.remind_pending()   # "Pongal is in 5 days – post a greeting?" (Telegram, once each)
+    except Exception:
+        log.exception("festival reminder failed")
     day = pipeline.today() + timedelta(days=1)
     log.info("scheduled generation for %s", day)
     pipeline.generate_for(day)

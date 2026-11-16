@@ -10,7 +10,8 @@ from urllib.parse import urlparse
 from .. import llm
 from ..config import CACHE_DIR, company, settings
 from ..db import last_source, recent_topics
-from ..research import calendar, trends, website
+from .. import occasions
+from ..research import trends, website
 
 log = logging.getLogger(__name__)
 
@@ -26,8 +27,8 @@ def kind_for(day: date) -> str:
     """video | post | none, from the weekly schedule.
     With `always_post_on_festivals`, a festival on a 'none' day still gets a greeting post."""
     kind = (settings().get("schedule") or {}).get(day.strftime("%A").lower(), "none")
-    if kind == "none" and settings().get("always_post_on_festivals") and calendar.festivals_on(day):
-        return "post"
+    if kind == "none" and settings().get("always_post_on_festivals") and occasions.festive_for(day):
+        return "post"  # only APPROVED festivals / special days
     return kind
 
 
@@ -56,8 +57,9 @@ def _product_summary(product: dict | None) -> str:
 
 def plan(day: date, kind: str, product: dict | None = None) -> dict:
     """Return {source, topic, angle, hook, page_urls, context, product}."""
-    festival = calendar.upcoming_festival(day)
-    event = calendar.company_event(day)
+    fest = occasions.festive_for(day)        # approved festival / special day / accepted suggestion
+    festival = (fest.name, date.fromisoformat(fest.date)) if fest else None
+    event = occasions.event_for(day)         # your events (paused ones are skipped)
     recent = recent_topics(20)
     snap = trends.snapshot()
     site = _product_summary(product)
@@ -70,6 +72,10 @@ def plan(day: date, kind: str, product: dict | None = None) -> dict:
             if src == "festival" and festival:
                 name, fdate = festival
                 source, context = "festival", f"Festival/special day: {name} on {fdate:%d %b %Y}"
+                if fest.note:
+                    context += f". Your note for this greeting: {fest.note}"
+                if fest.kind == "suggestion" and fest.product:
+                    context += f". Tie it gently to {fest.product}: {fest.reason}"
                 break
             if src == "event" and event:
                 source, context = "event", f"Company event: {event['title']} on {event['date']} ({event['days_left']} days left). Details: {event.get('details', '')}"

@@ -54,7 +54,7 @@ export default function Layout() {
           <div className="rounded-lg bg-white/5 p-3">
             <div className="font-semibold text-white/80">{live ? "Publishing live" : "Test mode"}</div>
             <div className="mt-1">
-              {live ? "Approved content is posted for real." : "Approved content is marked as published but not posted. Add platform keys in .env to go live."}
+              {live ? "Approved content is posted for real." : <>Approved content is marked as published but not posted. <NavLink to="/settings?tab=connections" className="font-semibold text-white/80 underline">Connect accounts</NavLink> to go live.</>}
             </div>
           </div>
           {meta && <div>Prepares at {meta.times.generate} · posts at {meta.times.publish}</div>}

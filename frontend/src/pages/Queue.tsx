@@ -7,6 +7,7 @@ import { api, type Status } from "../lib/api";
 import { fmtDate } from "../lib/ui";
 import ItemCard from "../components/ItemCard";
 import { Button, EmptyState, useToast } from "../components/ui";
+import { PendingOccasionsBanner } from "../components/Occasions";
 
 const TABS: { id: string; label: string; statuses: Status[] | null }[] = [
   { id: "all", label: "All", statuses: null },
@@ -110,11 +111,18 @@ export default function Queue() {
                 {d.kind === "video" ? <Film className="size-3.5" /> : d.kind === "post" ? <ImageIcon className="size-3.5" /> : null}
                 {d.kind === "none" ? <span className={i === 0 ? "text-white/50" : "text-stone-400"}>Off</span> : d.kind === "video" ? "Video" : "Post"}
               </div>
-              {d.festivals[0] && <div className={clsx("mt-0.5 truncate text-[11px]", i === 0 ? "text-amber-300" : "text-amber-600")} title={d.festivals.join(", ")}>🎉 {d.festivals[0]}</div>}
+              {(d.occasions ?? []).filter((o) => o.status !== "skipped").slice(0, 1).map((o) => (
+                <div key={o.name} title={`${o.name} – ${o.status === "approved" ? "greeting will be posted" : "waiting for your decision"}`}
+                  className={clsx("mt-0.5 truncate text-[11px]", o.status === "approved" ? (i === 0 ? "text-emerald-300" : "text-emerald-700") : (i === 0 ? "text-amber-300" : "text-amber-600"))}>
+                  {o.status === "approved" ? "✅" : "⏳"} {o.name}
+                </div>
+              ))}
             </div>
           ))}
         </div>
       )}
+
+      <PendingOccasionsBanner />
 
       {/* filters */}
       <div className="mt-8 flex flex-wrap items-center gap-3">

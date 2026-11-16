@@ -3,14 +3,16 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, Cpu, ExternalLink, Loader2, Music, Package, Palette, Play,
+  AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, Cpu, ExternalLink, Link2, Loader2, Music, Package, Palette, Play,
   Plus, RefreshCw, Trash2, Upload, Volume2, XCircle,
 } from "lucide-react";
 import { api, type HealthCheck, type Product, type Settings as TSettings } from "../lib/api";
 import { PLATFORMS, pretty } from "../lib/ui";
 import { Button, Card, Field, SaveBar, Switch, inputCls, useToast } from "../components/ui";
+import ConnectionsTab from "../components/Connections";
 
 const TABS = [
+  { id: "connections", label: "Connections", icon: Link2 },
   { id: "company", label: "Company & brand", icon: Building2 },
   { id: "products", label: "Products", icon: Package },
   { id: "style", label: "Content style", icon: Palette },
@@ -20,7 +22,7 @@ type TabId = (typeof TABS)[number]["id"];
 
 export default function Settings() {
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as TabId) || "company";
+  const tab = (params.get("tab") as TabId) || "connections";
   const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
 
   return (
@@ -40,6 +42,7 @@ export default function Settings() {
 
       <div className="mt-6">
         {!data ? <div className="shimmer h-96 rounded-2xl bg-stone-200/60" /> :
+          tab === "connections" ? <ConnectionsTab /> :
           tab === "company" ? <CompanyTab s={data} /> :
           tab === "products" ? <ProductsTab s={data} /> :
           tab === "style" ? <StyleTab s={data} /> : <StatusTab s={data} />}
@@ -437,7 +440,7 @@ function StatusTab({ s }: { s: TSettings }) {
               );
             })}
           </ul>
-          <p className="mt-4 text-xs text-stone-500">To post for real, add the Meta and LinkedIn keys to <code className="rounded bg-stone-100 px-1">.env</code> (steps in the README, section 4) and restart the agent.</p>
+          <a href="/settings?tab=connections" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline"><Link2 className="size-4" /> Manage connections</a>
         </Card>
 
         <Card className="p-6">

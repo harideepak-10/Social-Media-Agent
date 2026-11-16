@@ -118,11 +118,18 @@ def month_calendar(month: str | None = None, _: str = User):
             {"id": i.id, "kind": i.kind, "status": i.status, "topic": i.topic, "source_url": i.source_url,
              "thumb": _media_url(i.thumb_path)})
     events = _events()
+    from . import occasions
+    occ_by_day: dict[str, list] = {}
+    for o in occasions.occasions_between(start, end):
+        if o.kind != "event":
+            occ_by_day.setdefault(o.date, []).append({"name": o.name, "kind": o.kind, "status": o.status,
+                                                      "post_date": o.post_date, "key": o.key})
     days, d = [], start
     while d <= end:
         days.append({
             "date": d.isoformat(), "in_month": d.month == first.month,
             "kind": planner.kind_for(d), "festivals": festcal.festivals_on(d),
+            "occasions": occ_by_day.get(d.isoformat(), []),
             "events": [e for e in events if e["date"] == d.isoformat()],
             "items": by_day.get(d, []),
         })
@@ -140,7 +147,8 @@ def _events() -> list[dict]:
     out = []
     for idx, e in enumerate(events_config().get("events") or []):
         out.append({"id": idx, "date": str(e.get("date", "")), "title": e.get("title", ""),
-                    "details": e.get("details", ""), "remind_days_before": int(e.get("remind_days_before", 0))})
+                    "details": e.get("details", ""), "remind_days_before": int(e.get("remind_days_before", 0)),
+                    "paused": bool(e.get("paused", False))})
     return out
 
 
@@ -153,7 +161,7 @@ class EventIn(BaseModel):
 
 def _save_events(items: list[dict]) -> list[dict]:
     clean = [{"date": e["date"], "title": e["title"], "details": e.get("details", ""),
-              "remind_days_before": int(e.get("remind_days_before", 0))}
+              "remind_days_before": int(e.get("remind_days_before", 0)), "paused": bool(e.get("paused", False))}
              for e in sorted(items, key=lambda e: e["date"])]
     update_yaml("events.yaml", {"events": clean}, replace_keys=("events",))
     return _events()
@@ -183,7 +191,7 @@ def edit_event(idx: int, body: EventIn, _: str = User):
     items = _events()
     if not 0 <= idx < len(items):
         raise HTTPException(404, "Event not found")
-    items[idx] = _valid_event(body)
+    items[idx] = {**_valid_event(body), "paused": items[idx].get("paused", False)}
     return {"events": _save_events(items)}
 
 

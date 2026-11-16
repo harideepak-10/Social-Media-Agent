@@ -99,6 +99,53 @@ class ContentItem(Base):
         return [p for p in self.platforms.split(",") if p]
 
 
+# ── festival / special-day approvals ───────────────────────────────────────
+class OccasionRule(Base):
+    """Remembered choice for a recurring festival/special day: always | never | ask (+ options)."""
+    __tablename__ = "occasion_rules"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)   # slug of the name
+    name: Mapped[str] = mapped_column(String(200), default="")
+    rule: Mapped[str] = mapped_column(String(10), default="ask")
+    timing: Mapped[int | None] = mapped_column(Integer, nullable=True)  # days early (None = global default)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+
+class OccasionDecision(Base):
+    """Decision for one occurrence (e.g. Pongal 2027-01-14): approved | skipped."""
+    __tablename__ = "occasion_decisions"
+
+    key: Mapped[str] = mapped_column(String(160), primary_key=True)   # "<date>|<slug>"
+    day: Mapped[date] = mapped_column(Date, index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(10), default="approved")
+    timing: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    reminded: Mapped[int] = mapped_column(Integer, default=0)
+    decided_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class OccasionSuggestion(Base):
+    """Days the AI suggested for your products (e.g. World Health Day for Clinic) – wait for you."""
+    __tablename__ = "occasion_suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    product: Mapped[str] = mapped_column(String(100), default="")
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending | accepted | dismissed
+
+
+class Connection(Base):
+    """Social account connections and app credentials (encrypted JSON)."""
+    __tablename__ = "connections"
+
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)    # meta | linkedin | meta_app | linkedin_app | *_pending
+    data: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class StoredFile(Base):
     """Copies of config/*.yaml kept in the cloud database, so dashboard edits survive restarts."""
     __tablename__ = "stored_files"

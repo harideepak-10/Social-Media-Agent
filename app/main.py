@@ -19,6 +19,8 @@ from . import pipeline, publishers, scheduler
 from .api import router as api_router
 from .api_settings import public as brand_router
 from .api_settings import router as settings_router
+from .api_occasions import router as occasions_router
+from .api_connections import router as connections_router
 from .auth import require_basic
 from .config import BASE_DIR, MEDIA_DIR, WEEKDAYS, env, save_schedule, settings
 from .db import ContentItem, get_session, init_db
@@ -49,6 +51,8 @@ app = FastAPI(title="Digital Marketing Agent", lifespan=lifespan)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.include_router(api_router)
 app.include_router(settings_router)
+app.include_router(occasions_router)
+app.include_router(connections_router)
 app.include_router(brand_router)
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 classic = APIRouter(prefix="/classic")  # the simple server-rendered dashboard (works without Node/React)

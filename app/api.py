@@ -90,9 +90,14 @@ def meta(_: str = User):
     with get_session() as s:
         counts = dict(s.execute(select(ContentItem.status, func.count()).group_by(ContentItem.status)).all())
     from datetime import timedelta
+    from . import occasions
+    occ = occasions.occasions_between(today, today + timedelta(days=6))
     week = [{"date": (today + timedelta(days=n)).isoformat(),
              "kind": planner.kind_for(today + timedelta(days=n)),
-             "festivals": calendar.festivals_on(today + timedelta(days=n))} for n in range(7)]
+             "festivals": calendar.festivals_on(today + timedelta(days=n)),
+             "occasions": [{"name": o.name, "status": o.status, "kind": o.kind} for o in occ
+                           if o.date == (today + timedelta(days=n)).isoformat() and o.kind != "event"]}
+            for n in range(7)]
     c = company()
     return {
         "company": {"name": c.get("name"), "website": c.get("website"), "tagline": c.get("tagline")},
