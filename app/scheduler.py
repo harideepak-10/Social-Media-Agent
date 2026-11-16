@@ -46,3 +46,23 @@ def start() -> BackgroundScheduler:
     _scheduler = sch
     log.info("scheduler started: generate at %02d:%02d, publish check every 5 min (%s)", gh, gm, tz)
     return sch
+
+
+def reschedule() -> None:
+    """Apply a changed generate_time / timezone without restarting the app."""
+    if not _scheduler:
+        return
+    cfg = settings()
+    tz = cfg.get("timezone", "Asia/Kolkata")
+    gh, gm = map(int, cfg.get("generate_time", "18:00").split(":"))
+    _scheduler.reschedule_job("generate", trigger=CronTrigger(hour=gh, minute=gm, timezone=tz))
+    log.info("rescheduled generation to %02d:%02d (%s)", gh, gm, tz)
+
+
+def next_runs() -> dict:
+    if not _scheduler:
+        return {}
+    out = {}
+    for job in _scheduler.get_jobs():
+        out[job.id] = job.next_run_time.isoformat() if job.next_run_time else None
+    return out

@@ -32,6 +32,8 @@ class ContentItem(Base):
     theme: Mapped[str] = mapped_column(String(40), default="")     # visual theme used
     product: Mapped[str] = mapped_column(String(100), default="")  # product featured
     media_alt_path: Mapped[str] = mapped_column(String(500), default="")  # vertical 9:16 version of a video
+    stage: Mapped[str] = mapped_column(String(200), default="")    # live progress text while generating
+    progress: Mapped[int] = mapped_column(Integer, default=0)      # 0-100
     topic: Mapped[str] = mapped_column(String(300), default="")
     angle: Mapped[str] = mapped_column(Text, default="")
     captions_json: Mapped[str] = mapped_column(Text, default="{}")   # {platform: caption}
@@ -75,7 +77,8 @@ def init_db() -> None:
         cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(content_items)")}
         for name, ddl in (("source_url", "VARCHAR(500) DEFAULT ''"), ("notes", "TEXT DEFAULT ''"),
                           ("format", "VARCHAR(40) DEFAULT ''"), ("theme", "VARCHAR(40) DEFAULT ''"),
-                          ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''")):
+                          ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''"),
+                          ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0")):
             if name not in cols:
                 conn.exec_driver_sql(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}")
 

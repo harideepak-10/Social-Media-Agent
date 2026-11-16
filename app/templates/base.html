@@ -33,7 +33,7 @@
 </style>
 </head>
 <body>
-<header><a href="/">📣 Digital Marketing Agent</a><span class="sp"></span><span class="muted" style="color:#9ca3af">{{ settings.company.name if settings else '' }}</span></header>
+<header><a href="/classic/">📣 Digital Marketing Agent</a><span class="sp"></span><span class="muted" style="color:#9ca3af">{{ settings.company.name if settings else '' }}</span></header>
 <main>
 {% if request.query_params.get('msg') %}<div class="msg">{{ request.query_params.get('msg') }}</div>{% endif %}
 {% block content %}{% endblock %}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import lru_cache
@@ -46,14 +47,47 @@ def reload_settings() -> dict:
     return settings()
 
 
+_write_lock = threading.Lock()
+
+
+def _rt_yaml():
+    from ruamel.yaml import YAML
+    y = YAML()  # round-trip: keeps the comments in your yaml files
+    y.preserve_quotes = True
+    y.width = 4096
+    y.indent(mapping=2, sequence=4, offset=2)
+    return y
+
+
+def update_yaml(name: str, patch: dict, replace_keys: tuple[str, ...] = ()) -> dict:
+    """Merge `patch` into config/<name> keeping comments. Keys in `replace_keys` are replaced whole
+    (lists such as products), everything else is merged key by key."""
+    path = CONFIG_DIR / name
+    y = _rt_yaml()
+    with _write_lock:
+        data = y.load(path.read_text(encoding="utf-8")) if path.exists() else None
+        if data is None:
+            from ruamel.yaml.comments import CommentedMap
+            data = CommentedMap()
+
+        def merge(dst, src, top=False):
+            for k, v in src.items():
+                if isinstance(v, dict) and isinstance(dst.get(k), dict) and not (top and k in replace_keys):
+                    merge(dst[k], v)
+                else:
+                    dst[k] = v
+
+        merge(data, patch, top=True)
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            y.dump(data, f)
+        tmp.replace(path)
+    return reload_settings() if name == "settings.yaml" else _load_yaml(name)
+
+
 def save_schedule(schedule: dict) -> None:
-    """Persist an edited weekly schedule back to settings.yaml (keeps other keys)."""
-    path = CONFIG_DIR / "settings.yaml"
-    data = _load_yaml("settings.yaml")
-    data["schedule"] = {d: schedule.get(d, "none") for d in WEEKDAYS}
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-    reload_settings()
+    """Persist an edited weekly schedule back to settings.yaml (keeps other keys and comments)."""
+    update_yaml("settings.yaml", {"schedule": {d: schedule.get(d, "none") for d in WEEKDAYS}})
 
 
 def events_config() -> dict:

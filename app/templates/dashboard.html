@@ -17,7 +17,7 @@
 
 <div class="card">
   <h2>🎬 Create from any website</h2>
-  <form method="post" action="/from-url" class="row" style="align-items:flex-end">
+  <form method="post" action="/classic/from-url" class="row" style="align-items:flex-end">
     <div style="flex:3;min-width:260px"><label>Website link</label><input name="url" placeholder="https://anywebsite.com" required></div>
     <div style="flex:1;min-width:120px"><label>Type</label><select name="kind"><option value="video">Video</option><option value="post">Post</option></select></div>
     <div style="flex:3;min-width:240px"><label>Focus (optional)</label><input name="notes" placeholder="e.g. explain the booking feature, target restaurant owners"></div>
@@ -29,7 +29,7 @@
 <div class="grid g2">
   <div class="card">
     <h2>Weekly schedule</h2>
-    <form method="post" action="/schedule">
+    <form method="post" action="/classic/schedule">
       <div class="grid" style="grid-template-columns:repeat(4,1fr)">
       {% for wd in weekdays %}
         <div><label>{{ wd|capitalize }}</label>
@@ -46,7 +46,7 @@
   </div>
   <div class="card">
     <h2>Generate now</h2>
-    <form method="post" action="/generate" class="row">
+    <form method="post" action="/classic/generate" class="row">
       <input type="date" name="day" value="{{ week[0].date.isoformat() }}" style="width:auto">
       <select name="kind" style="width:auto"><option value="auto">from schedule</option><option value="video">video</option><option value="post">post</option></select>
       <button>Generate</button>
@@ -73,7 +73,7 @@
       <td>{{ i.topic or '…' }}{% if i.source_url %}<div class="muted">{{ i.source_url }}</div>{% elif i.product %}<div class="muted">{{ i.product }}</div>{% endif %}</td>
       <td class="muted">{{ i.format }}{% if i.theme %}<br>{{ i.theme }}{% endif %}</td>
       <td><span class="pill s-{{ i.status }}">{{ i.status.replace('_',' ') }}</span></td>
-      <td><a class="btn btn-ghost" href="/item/{{ i.id }}">Open</a></td>
+      <td><a class="btn btn-ghost" href="/classic/item/{{ i.id }}">Open</a></td>
     </tr>
     {% else %}
     <tr><td colspan="8" class="muted">Nothing yet — use “Generate now” to create your first piece of content.</td></tr>

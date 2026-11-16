@@ -9,6 +9,7 @@ from datetime import date
 from ..config import MEDIA_DIR, settings
 from ..generators import post as simple_post
 from ..generators import video as simple_video
+from .. import progress
 from . import assets, post_designer, rotation, video_studio, visuals
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True) -> 
         if not (settings().get("creative") or {}).get("fallback", True):
             raise
         log.exception("premium %s engine failed – using the simple generator", kind)
+        progress.report("Premium design failed – making the simple version", 60)
         gen = simple_video.generate(plan, day, item_id) if kind == "video" else simple_post.generate(plan, day, item_id)
         gen.update(format="simple", theme="", alt=None, product=(product or {}).get("name", ""),
                    warning=f"Premium design failed, simple version used: {e}"[:600])
@@ -54,7 +56,9 @@ def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool) 
 
     fmt = rotation.pick_post_format(source, available, own)
     shots = []
+    progress.report(f"Format: {fmt.replace('_', ' ')}", 12)
     if fmt == "ui_showcase":
+        progress.report("Capturing product screenshots", 15)
         cap = visuals.capture(product["url"], MEDIA_DIR / f"{day:%Y-%m-%d}" / f"_cap_{item_id}")
         # the most "screen-like" blocks: biggest area first
         shots = sorted(cap["blocks"], key=lambda b: -(b["w"] * b["h"]))[:2]

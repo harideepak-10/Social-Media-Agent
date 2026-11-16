@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<p><a href="/" class="muted">← Back</a></p>
+<p><a href="/classic/" class="muted">← Back</a></p>
 <div class="card">
   <div class="row" style="justify-content:space-between">
     <div>
@@ -13,14 +13,14 @@
     </div>
     <div class="row">
       {% if item.status in ['pending_approval','rejected'] %}
-      <form method="post" action="/item/{{ item.id }}/approve"><button class="btn-ok">✓ Approve</button></form>
+      <form method="post" action="/classic/item/{{ item.id }}/approve"><button class="btn-ok">✓ Approve</button></form>
       {% endif %}
       {% if item.status in ['pending_approval','approved'] %}
-      <form method="post" action="/item/{{ item.id }}/reject"><button class="btn-bad">✕ Reject</button></form>
+      <form method="post" action="/classic/item/{{ item.id }}/reject"><button class="btn-bad">✕ Reject</button></form>
       {% endif %}
-      <form method="post" action="/item/{{ item.id }}/regenerate"><button class="btn-ghost">↻ Regenerate</button></form>
+      <form method="post" action="/classic/item/{{ item.id }}/regenerate"><button class="btn-ghost">↻ Regenerate</button></form>
       {% if item.status not in ['generating','published','rejected','dry_run'] %}
-      <form method="post" action="/item/{{ item.id }}/publish" onsubmit="return confirm('Publish now to all selected platforms?')"><button>Publish now</button></form>
+      <form method="post" action="/classic/item/{{ item.id }}/publish" onsubmit="return confirm('Publish now to all selected platforms?')"><button>Publish now</button></form>
       {% endif %}
     </div>
   </div>
@@ -44,7 +44,7 @@
   </div>
   <div class="card">
     <h2>Captions</h2>
-    <form method="post" action="/item/{{ item.id }}/save">
+    <form method="post" action="/classic/item/{{ item.id }}/save">
       <label>Platforms</label>
       <div class="row">
       {% for p in ['instagram','facebook','linkedin'] %}

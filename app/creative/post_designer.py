@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .. import llm
+from .. import llm, progress
 from ..config import MEDIA_DIR, company
 from ..generators import browser
 from . import assets, rotation
@@ -191,6 +191,7 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
     ai_ok = bool(assets.image_provider())
 
     brief = _brief(plan, fmt, theme_name, theme, product, shots, ai_ok, day)
+    progress.report(f"AI art director is designing the post ({theme_name.replace('_', ' ')})", 25)
     data = llm.complete_json(brief, STYLE_GUIDE, max_tokens=14000, design=True)
     html = data.get("html", "")
     if "<html" not in html.lower():
@@ -202,12 +203,16 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
             html = html.replace(fname, "logo.png")  # graceful fallback
 
     preview = work / "render.png"
+    progress.report("Rendering and checking the design", 60)
     issues = _render(html, work, preview)
     for round_ in range(2):
+        if review:
+            progress.report("AI is reviewing the rendered post", 66 + round_ * 12)
         problems = issues + (_review(preview) if review else [])
         if not problems:
             break
         log.info("post #%s round %s fixing: %s", item_id, round_ + 1, problems)
+        progress.report(f"Fixing design issues (round {round_ + 1})", 70 + round_ * 12)
         html = _fix(html, problems, preview, fmt, theme_name)
         issues = _render(html, work, preview)
 

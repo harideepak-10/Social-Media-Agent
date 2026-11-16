@@ -20,7 +20,7 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
-from .. import llm
+from .. import llm, progress
 from ..config import ASSETS_DIR, MEDIA_DIR, company, settings
 from ..generators import browser, ffmpeg, tts
 from . import assets, icons, rotation, visuals
@@ -301,13 +301,16 @@ def scene_outro(d, theme, size, dur, logo):
 
 
 # ── rendering ─────────────────────────────────────────────────────────────
-def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out: Path, fps: int) -> Path:
+def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out: Path, fps: int,
+                   on_progress=None) -> Path:
     """Render each HTML scene frame-by-frame (animations seeked precisely) and pipe JPEGs into ffmpeg."""
     w, h = size
     cmd = [ffmpeg.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(fps),
            "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
            "-r", str(fps), str(out)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    total_frames = sum(int(round(d * fps)) for _, d in scenes) or 1
+    done = 0
     try:
         with browser.browser_context(viewport={"width": w, "height": h}, device_scale_factor=1) as ctx:
             page = ctx.new_page()
@@ -324,6 +327,9 @@ def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out:
                     page.evaluate("t => { document.getAnimations().forEach(a => { try { a.currentTime = t * 1000 } catch (e) {} });"
                                   " window.__render && window.__render(t); }", t)
                     proc.stdin.write(page.screenshot(type="jpeg", quality=90))
+                    done += 1
+                    if on_progress and done % fps == 0:
+                        on_progress(done / total_frames)
         proc.stdin.close()
         proc.wait()
     finally:
@@ -383,6 +389,7 @@ def build(board: dict, theme_name: str, work: Path, out_base: Path, product_name
         shutil.copy(sc["_block"]["path"], work / Path(sc["_block"]["path"]).name)
 
     # 1) voice-over and timing
+    progress.report("Recording the voice-over" if voice else "Timing the scenes", 35)
     parts = [("intro", board.get("intro") or {})] + [("scene", s) for s in board["scenes"]] + \
             [("grid", board.get("grid") or {}), ("outro", board.get("outro") or {})]
     if not (board.get("grid") or {}).get("items"):
@@ -419,9 +426,16 @@ def build(board: dict, theme_name: str, work: Path, out_base: Path, product_name
             p.write_text(doc, encoding="utf-8")
             scenes.append((p, dur))
         silent = work / f"{orient}_video.mp4"
-        _render_frames(scenes, size, silent, fps)
+        oi = orientations.index(orient)
+        span = 55 / len(orientations)
+        label = "16:9" if orient == "landscape" else "9:16"
+        lo = 40 + oi * span
+        _render_frames(scenes, size, silent, fps,
+                       on_progress=lambda f, lo=lo, label=label: progress.report(
+                           f"Rendering {label} video – {int(f * 100)}%", lo + f * span, throttle=2))
         outputs[orient] = silent
 
+    progress.report("Mixing music and voice", 96)
     audio = _audio_track([(v, s, d) for _, _, v, s, d in timeline], total, work)
     final = {}
     for orient, silent in outputs.items():
@@ -444,6 +458,7 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
     orientations = vcfg.get("formats") or ["landscape", "vertical"]
 
     url = (product or {}).get("url") or (plan.get("page_urls") or [company().get("website")])[0]
+    progress.report("Capturing the product screens", 12)
     cap = visuals.capture(url, work / "cap")
     # add blocks from a second page if the first one is thin
     for extra in (plan.get("page_urls") or [])[1:3]:
@@ -456,6 +471,7 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
         cap["blocks"] += more["blocks"]
         cap["text"] += " " + more["text"][:2000]
 
+    progress.report(f"AI is writing the storyboard from {len(cap['blocks'])} screens", 25)
     board = storyboard(plan, product, cap, work, voice)
     product_name = (product or {}).get("name", "")
     files = build(board, theme_name, work, folder / f"video_{item_id}.mp4", product_name, orientations, voice)

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from . import notify, publishers
+from . import notify, progress, publishers
 from .config import env, settings, use_brand
 from .db import ContentItem, get_session
 from .creative import engine, rotation
@@ -52,12 +52,16 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
         s.commit()
         item_id = item.id
 
+    progress.bind(item_id)
+    progress.report("Waiting for the previous job to finish…", 1)
     with _lock:
         try:
+            progress.report("Researching festivals, trends and products", 3)
             if (settings().get("site") or {}).get("render_js"):
                 browser.warmup()
             product = rotation.pick_product(kind)
             plan = planner.plan(day, kind, product)
+            progress.report(f"Planned: {plan['topic']}", 8)
             gen = engine.create(plan, day, item_id, kind, own=True)
             copy = gen["copy"]
             with get_session() as s:
@@ -72,7 +76,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
                     {k: v for k, v in copy.items() if k not in ("captions", "hashtags")}, ensure_ascii=False, indent=2)
                 item.media_path = str(gen["media"])
                 item.thumb_path = str(gen["thumb"])
-                item.status = "pending_approval"
+                item.status, item.stage, item.progress = "pending_approval", "", 100
                 s.commit()
             _notify_new(item)
             return item
@@ -80,7 +84,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
             log.exception("generation failed")
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
-                item.status, item.error = "failed", str(e)[:2000]
+                item.status, item.error, item.stage = "failed", str(e)[:2000], ""
                 s.commit()
             notify.telegram(f"⚠️ Content generation failed for {day} ({kind}): {e}")
             return item
@@ -110,6 +114,18 @@ def _normalize_url(url: str) -> str:
     return "https://" + url
 
 
+def create_url_item(url: str, kind: str = "video", notes: str = "") -> int:
+    """Create the queue row right away (so the UI can open it) – then call generate_from_url(item_id=…)."""
+    url = _normalize_url(url)
+    with get_session() as s:
+        item = ContentItem(run_date=today(), kind=kind, source="url", source_url=url, notes=notes,
+                           topic=f"{url} …", status="generating", stage="Queued",
+                           platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
+        s.add(item)
+        s.commit()
+        return item.id
+
+
 def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date | None = None,
                       item_id: int | None = None) -> ContentItem:
     """Create a video or post about ANY website. Goes to the same approval queue."""
@@ -121,15 +137,19 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
             item = ContentItem(run_date=day, kind=kind, source="url", source_url=url, notes=notes,
                                topic=f"{url} …", platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
             s.add(item)
-        item.status, item.error = "generating", ""
+        item.status, item.error, item.stage, item.progress = "generating", "", "Queued", 0
         s.commit()
         item_id = item.id
 
+    progress.bind(item_id)
+    progress.report("Waiting for the previous job to finish…", 1)
     with _lock:
         try:
+            progress.report("Reading the website and its brand", 3)
             brand = planner.brand_for_url(url)
             with use_brand(brand):
                 plan = planner.plan_for_url(url, kind, day, notes)
+                progress.report(f"Planned: {plan['topic']}", 8)
                 gen = engine.create(plan, day, item_id, kind, own=False)
             copy = gen["copy"]
             with get_session() as s:
@@ -142,7 +162,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                 item.script_json = gen.get("script_json") or json.dumps(
                     {k: v for k, v in copy.items() if k not in ("captions", "hashtags")}, ensure_ascii=False, indent=2)
                 item.media_path, item.thumb_path = str(gen["media"]), str(gen["thumb"])
-                item.status = "pending_approval"
+                item.status, item.stage, item.progress = "pending_approval", "", 100
                 s.commit()
             _notify_new(item)
             return item
@@ -150,7 +170,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
             log.exception("generation from %s failed", url)
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
-                item.status, item.error = "failed", str(e)[:2000]
+                item.status, item.error, item.stage = "failed", str(e)[:2000], ""
                 s.commit()
             return item
 
@@ -159,7 +179,7 @@ def _notify_new(item: ContentItem) -> None:
     base = env("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
     notify.telegram(
         f"📝 New <b>{item.kind}</b> for {item.run_date:%a %d %b} waiting for approval\n"
-        f"<b>{item.topic}</b>\n{base}/item/{item.id}",
+        f"<b>{item.topic}</b>\n{base}/items/{item.id}",
         photo_path=item.thumb_path or None,
     )
 

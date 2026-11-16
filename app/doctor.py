@@ -6,16 +6,38 @@ import sys
 import time
 
 OK, WARN, FAIL = "✅", "⚠️ ", "❌"
+_LEVEL = {OK: "ok", WARN: "warn", FAIL: "fail"}
+_collected: list[dict] | None = None
+_quiet = False
 
 
 def _line(icon: str, name: str, detail: str = "") -> str:
-    print(f"{icon} {name}{' — ' + detail if detail else ''}")
+    if _collected is not None:
+        _collected.append({"name": name, "status": _LEVEL[icon], "detail": detail})
+    if not _quiet:
+        print(f"{icon} {name}{' — ' + detail if detail else ''}")
     return icon
 
 
+def checks(full: bool = False) -> list[dict]:
+    """Same checks as `cli.py doctor`, returned as [{name, status: ok|warn|fail, detail}] for the dashboard."""
+    global _collected, _quiet
+    _collected, _quiet = [], True
+    try:
+        _run(full)
+        return _collected
+    finally:
+        _collected, _quiet = None, False
+
+
 def run(full: bool = True) -> bool:
+    return _run(full)
+
+
+def _run(full: bool) -> bool:
     results = []
-    print("\nDigital Marketing Agent — health check\n" + "─" * 44)
+    if not _quiet:
+        print("\nDigital Marketing Agent — health check\n" + "─" * 44)
 
     # Python & packages
     v = sys.version_info
@@ -88,7 +110,7 @@ def run(full: bool = True) -> bool:
                                  ("Google Fonts", "https://fonts.googleapis.com/css2?family=Manrope", WARN),
                                  ("Google Trends feed", "https://trends.google.com/trending/rss?geo=IN", WARN)):
         try:
-            r = httpx.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+            r = httpx.get(url, timeout=8, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
             results.append(_line(OK if r.status_code < 400 else icon_fail, name, f"{url} → {r.status_code}"))
         except Exception as e:
             results.append(_line(icon_fail, name, f"{url} unreachable ({type(e).__name__})"))
@@ -114,7 +136,8 @@ def run(full: bool = True) -> bool:
     st = publishers.status()
     results.append(_line(OK, "Publishing", ", ".join(f"{k}: {'live' if v else 'dry-run'}" for k, v in st.items())))
 
-    print("─" * 44)
     ok = FAIL not in results
-    print("Ready to go live! Start it with run_agent.bat" if ok else "Fix the ❌ items above, then run this again.")
+    if not _quiet:
+        print("─" * 44)
+        print("Ready to go live! Start it with run_agent.bat" if ok else "Fix the ❌ items above, then run this again.")
     return ok

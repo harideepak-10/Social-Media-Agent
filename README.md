@@ -38,6 +38,55 @@ python cli.py serve                         # dashboard + scheduler → http://l
 ```
 Platforms without credentials run in **dry-run** mode. Content is generated, but nothing is posted.
 
+## 1a. Dashboard (React)
+
+Open <http://localhost:8000> and log in with `DASHBOARD_USER` / `DASHBOARD_PASSWORD` from `.env`.
+
+- **Content queue:** every post and video as a card, with a strip showing the week ahead.
+  - Filter by Needs review, Generating, Approved, Published, or Rejected/failed; filter by type; search.
+  - One-click Approve or Reject on a card.
+  - **Generate now** makes today's scheduled content, a post or a video.
+- **Review page:**
+  - Post preview, or a video player with a 16:9 / 9:16 switch, plus downloads.
+  - Video storyboard.
+  - Platform toggles.
+  - A caption editor per platform, with a character counter and a "preview with hashtags" view.
+  - Hashtag chips (LinkedIn uses the first 5).
+  - Approve, Reject, Regenerate and Publish now.
+  - While an item is generating, you see a live progress bar and the current step, e.g. "Rendering 9:16 video – 64%".
+- **Create from URL:** paste any link, choose video or post, add an optional focus, and watch it being made.
+- **Schedule & calendar:**
+  - Weekly plan: Video, Post or Off for each day.
+  - When content is prepared and when it's published.
+  - The order of post topics (festivals, your events, trends, products).
+  - Festival greetings on days off, and how early to post festival wishes.
+  - A month calendar with planned types, festivals, your events and the content already made (click a thumbnail to open it).
+  - Add, edit or delete your events. The agent announces them on the day or a few days before.
+- **Settings:**
+  - **Company & brand:** name, tagline, website, audience, tone, call to action, colours, and logo upload with a light/dark preview.
+  - **Products:** add, edit, reorder or remove the products the agent rotates through.
+  - **Content style:** video sizes, length, voice-over on/off, voice picker with "Listen", background music library (upload, play, delete), and video looks. For posts: AI review on/off, which formats and looks to rotate.
+  - **Status & health:** the same health check as `check_agent.bat` (quick or full), publishing connections, AI engine and the next scheduler runs.
+
+Changes made in the dashboard are written to `config/settings.yaml` and `config/events.yaml`, and your comments in those files are kept. A new preparation time takes effect immediately; you don't need to restart.
+
+The old server-rendered dashboard is still at `/classic/` and works without Node.
+
+**Frontend code** (`frontend/`, Vite + React + TypeScript + Tailwind):
+```bash
+cd frontend
+npm install
+npm run dev      # hot reload on http://localhost:5173 (agent must be running on :8000)
+npm run build    # -> frontend/dist, served by the agent at http://localhost:8000 (restart the agent)
+```
+API used by the UI (`app/api.py`, Bearer token from `POST /api/login`, or HTTP Basic for scripts/n8n):
+- `GET /api/meta`
+- `GET /api/items?status=&kind=&q=`
+- `GET|PATCH /api/items/{id}`
+- `POST /api/items/{id}/approve|reject|regenerate|publish`
+- `POST /api/from-url`
+- `POST /api/generate`
+
 ## 1b. Premium creative engine (styled after the Krypsos sample posts & videos)
 
 **Posts.** An AI art director (`ANTHROPIC_DESIGN_MODEL`) designs every post as an HTML/CSS poster (1080×1350). Chromium renders it, the agent checks for clipped or overflowing text and broken images, and the AI looks at the result and fixes any problems before it goes for approval.
