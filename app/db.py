@@ -75,6 +75,7 @@ class ContentItem(Base):
     results_json: Mapped[str] = mapped_column(Text, default="{}")    # {platform: {ok, id, error}}
     error: Mapped[str] = mapped_column(Text, default="")
     quality_json: Mapped[str] = mapped_column(Text, default="")      # AI + technical quality check of the result
+    origin: Mapped[str] = mapped_column(String(20), default="")      # schedule | catch_up | manual | regenerate | url
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -182,7 +183,7 @@ def init_db() -> None:
                           ("format", "VARCHAR(40) DEFAULT ''"), ("theme", "VARCHAR(40) DEFAULT ''"),
                           ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''"),
                           ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0"),
-                          ("quality_json", "TEXT DEFAULT ''")):
+                          ("quality_json", "TEXT DEFAULT ''"), ("origin", "VARCHAR(20) DEFAULT ''")):
             if name not in cols:
                 conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}"))
     if is_cloud_db():
