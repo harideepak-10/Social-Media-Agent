@@ -94,10 +94,11 @@ def warmup() -> None:
 
 
 @contextmanager
-def browser_context(orientation: str | None = None, headless: bool = True, **extra):
+def browser_context(orientation: str | None = None, headless: bool = True, extra_args: list[str] | None = None,
+                    **extra):
     """Chromium context with the saved login session; saves refreshed session on exit."""
     with sync_playwright() as p:
-        b = p.chromium.launch(headless=headless, args=CHROMIUM_ARGS)
+        b = p.chromium.launch(headless=headless, args=CHROMIUM_ARGS + list(extra_args or []))
         opts = dict(extra)
         if orientation:
             cfg = VIEWPORTS.get(orientation, VIEWPORTS["vertical"])

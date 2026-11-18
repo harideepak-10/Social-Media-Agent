@@ -37,7 +37,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    from . import storage
+    from . import pipeline, storage
+    stuck = pipeline.recover_interrupted()  # jobs that were running when the server restarted
+    if stuck:
+        logging.getLogger(__name__).warning("marked %s interrupted generation(s) as failed", stuck)
     synced = storage.sync_brand_assets()  # cloud mode: bring back uploaded logo & music
     if synced:
         logging.getLogger(__name__).info("downloaded %s brand file(s) from cloud storage", synced)

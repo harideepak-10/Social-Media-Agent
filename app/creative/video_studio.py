@@ -304,16 +304,27 @@ def scene_outro(d, theme, size, dur, logo):
 # ── rendering ─────────────────────────────────────────────────────────────
 def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out: Path, fps: int,
                    on_progress=None) -> Path:
-    """Render each HTML scene frame-by-frame (animations seeked precisely) and pipe JPEGs into ffmpeg."""
+    """Render each HTML scene frame-by-frame (animations seeked precisely) and pipe JPEGs into ffmpeg.
+
+    LOW_MEMORY=1 (small servers like Render free, 512 MB / 0.1 CPU): frames are drawn at half resolution and
+    15 fps, then scaled back to full HD / 30 fps by ffmpeg – about 1/8 of the pixels to draw and far less memory."""
     w, h = size
-    cmd = [ffmpeg.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(fps),
-           "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", *ffmpeg.X264, "-crf", "18", "-pix_fmt", "yuv420p",
-           "-r", str(fps), str(out)]
+    low = ffmpeg.low_memory()
+    scale = 0.5 if low else 1
+    rfps = min(fps, 15) if low else fps
+    vf = [f"scale={w}:{h}:flags=lanczos", "unsharp=5:5:0.6"] if low else []
+    x264 = (["-preset", "ultrafast", "-threads", "1", "-x264-params", "rc-lookahead=0:ref=1:bframes=0"]
+            if low else list(ffmpeg.X264))
+    cmd = [ffmpeg.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", str(rfps),
+           "-c:v", "mjpeg", "-i", "-", *(["-vf", ",".join(vf)] if vf else []),
+           "-c:v", "libx264", *x264, "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(fps), str(out)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    total_frames = sum(int(round(d * fps)) for _, d in scenes) or 1
+    total_frames = sum(int(round(d * rfps)) for _, d in scenes) or 1
     done = 0
     try:
-        with browser.browser_context(viewport={"width": w, "height": h}, device_scale_factor=1) as ctx:
+        extra_args = ["--single-process", "--in-process-gpu"] if low else []  # one Chromium process instead of four
+        with browser.browser_context(viewport={"width": w, "height": h}, device_scale_factor=scale,
+                                     extra_args=extra_args) as ctx:
             page = ctx.new_page()
             for html_path, dur in scenes:
                 page.goto(html_path.resolve().as_uri(), wait_until="load", timeout=60000)
@@ -323,13 +334,20 @@ def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out:
                     pass
                 page.wait_for_timeout(300)
                 page.evaluate("document.getAnimations().forEach(a => a.pause())")
-                for i in range(int(round(dur * fps))):
-                    t = i / fps
-                    page.evaluate("t => { document.getAnimations().forEach(a => { try { a.currentTime = t * 1000 } catch (e) {} });"
-                                  " window.__render && window.__render(t); }", t)
-                    proc.stdin.write(page.screenshot(type="jpeg", quality=90))
+                # when every animation has finished the picture no longer changes: reuse the last frame
+                settle = page.evaluate("""() => window.__render ? 1e9 : Math.max(0, ...document.getAnimations().map(a => {
+                    const e = a.effect && a.effect.getComputedTiming().endTime;
+                    return (e === Infinity || e == null) ? 1e9 : e; })) / 1000""")
+                last = None
+                for i in range(int(round(dur * rfps))):
+                    t = i / rfps
+                    if last is None or t <= settle + 1 / rfps:
+                        page.evaluate("t => { document.getAnimations().forEach(a => { try { a.currentTime = t * 1000 } catch (e) {} });"
+                                      " window.__render && window.__render(t); }", t)
+                        last = page.screenshot(type="jpeg", quality=88)
+                    proc.stdin.write(last)
                     done += 1
-                    if on_progress and done % fps == 0:
+                    if on_progress and done % rfps == 0:
                         on_progress(done / total_frames)
         proc.stdin.close()
         proc.wait()

@@ -30,7 +30,7 @@ def today() -> date:
 
 
 def generate_for(day: date, kind: str | None = None, force: bool = False,
-                 only_if_missing: bool = False) -> ContentItem | None:
+                 only_if_missing: bool = False, origin: str = "schedule") -> ContentItem | None:
     """Create the content item for `day`. Returns None if nothing is scheduled.
     only_if_missing: skip if ANY item exists for the day (used by start-up catch-up)."""
     kind = kind or planner.kind_for(day)
@@ -46,7 +46,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
         if existing and not force:
             log.info("%s: already has an item (#%s, %s) – automatic runs make one per day", day, existing.id, existing.status)
             return existing
-        item = ContentItem(run_date=day, kind=kind, status="generating",
+        item = ContentItem(run_date=day, kind=kind, status="generating", origin=origin[:20],
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
         s.add(item)
         s.commit()
@@ -111,6 +111,23 @@ def _quality(kind: str, gen: dict, topic: str, item_id: int) -> dict:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def recover_interrupted() -> int:
+    """At start-up nothing can be generating yet: items still marked 'generating' were cut off by a restart
+    (on Render's free plan usually because a video ran out of memory). Mark them failed so they can be retried."""
+    from .generators.ffmpeg import low_memory
+    with get_session() as s:
+        items = s.scalars(select(ContentItem).where(ContentItem.status == "generating")).all()
+        for it in items:
+            hint = (" On a small server this usually means it ran out of memory while making the video – "
+                    "videos need about 1 GB; try again, or make videos on your PC." if it.kind == "video" and low_memory()
+                    else "")
+            it.error = (f"The server restarted while this was being made (stopped at {it.progress}%: "
+                        f"{it.stage or 'starting'}).{hint}")[:2000]
+            it.status, it.stage = "failed", ""
+        s.commit()
+        return len(items)
+
+
 def _stopped(item_id: int) -> ContentItem | None:
     """User pressed Stop: leave the item as the API marked it and clean up half-made files."""
     log.info("generation #%s stopped by the user", item_id)
@@ -157,7 +174,7 @@ def create_url_item(url: str, kind: str = "video", notes: str = "") -> int:
     """Create the queue row right away (so the UI can open it) – then call generate_from_url(item_id=…)."""
     url = _normalize_url(url)
     with get_session() as s:
-        item = ContentItem(run_date=today(), kind=kind, source="url", source_url=url, notes=notes,
+        item = ContentItem(run_date=today(), kind=kind, source="url", origin="url", source_url=url, notes=notes,
                            topic=f"{url} …", status="generating", stage="Queued",
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
         s.add(item)
@@ -173,7 +190,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
     with get_session() as s:
         item = s.get(ContentItem, item_id) if item_id else None
         if item is None:
-            item = ContentItem(run_date=day, kind=kind, source="url", source_url=url, notes=notes,
+            item = ContentItem(run_date=day, kind=kind, source="url", origin="url", source_url=url, notes=notes,
                                topic=f"{url} …", platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
             s.add(item)
         item.status, item.error, item.stage, item.progress = "generating", "", "Queued", 0
