@@ -99,7 +99,7 @@ export default function ItemDetail() {
 
       {/* title */}
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-[22rem]">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={item.status} />
             <Chip>{item.kind === "video" ? "Video" : "Post"}</Chip>
