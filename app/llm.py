@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import logging
 import re
 
@@ -43,10 +44,15 @@ def _image_block(path, max_side: int = 1400) -> dict:
                                         "data": base64.b64encode(buf.getvalue()).decode()}}
 
 
+def _missing(name: str) -> str:
+    where = "Render → your service → Environment" if os.environ.get("RENDER") else "the .env file"
+    return f"{name} is not set – add it in {where}, then restart"
+
+
 def _anthropic(prompt, system, max_tokens, temperature, images=None, design=False) -> str:
-    key = env("ANTHROPIC_API_KEY")
+    key = (env("ANTHROPIC_API_KEY") or "").strip().strip('"')
     if not key:
-        raise LLMError("ANTHROPIC_API_KEY is not set in .env")
+        raise LLMError(_missing("ANTHROPIC_API_KEY"))
     import anthropic
 
     client = anthropic.Anthropic(api_key=key)
@@ -67,7 +73,7 @@ def _anthropic(prompt, system, max_tokens, temperature, images=None, design=Fals
 def _groq(prompt, system, max_tokens, temperature) -> str:
     key = env("GROQ_API_KEY")
     if not key:
-        raise LLMError("GROQ_API_KEY is not set in .env")
+        raise LLMError(_missing("GROQ_API_KEY"))
     from groq import Groq
 
     client = Groq(api_key=key)
