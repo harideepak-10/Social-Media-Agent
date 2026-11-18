@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import logging
 import threading
 from datetime import date, datetime
@@ -38,13 +39,12 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
         return None
 
     with get_session() as s:
-        q = select(ContentItem).where(ContentItem.run_date == day, ContentItem.kind == kind,
-                                      ContentItem.source_url == "")
-        if not only_if_missing:
-            q = q.where(ContentItem.status.notin_(["rejected", "failed"]))
-        existing = s.scalars(q).first()
+        # Automatic runs make at most ONE item per day (any kind, even if it failed or was rejected/stopped).
+        # "Generate now" / Regenerate pass force=True and always make a new one.
+        existing = s.scalars(select(ContentItem).where(ContentItem.run_date == day,
+                                                       ContentItem.source_url == "")).first()
         if existing and not force:
-            log.info("%s: %s already exists (#%s)", day, kind, existing.id)
+            log.info("%s: already has an item (#%s, %s) – automatic runs make one per day", day, existing.id, existing.status)
             return existing
         item = ContentItem(run_date=day, kind=kind, status="generating",
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
@@ -64,6 +64,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
             progress.report(f"Planned: {plan['topic']}", 8)
             gen = engine.create(plan, day, item_id, kind, own=True)
             copy = gen["copy"]
+            progress.check()
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
                 _save_creative(item, gen)
@@ -79,6 +80,8 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
                 s.commit()
             _notify_new(item)
             return item
+        except progress.Stopped:
+            return _stopped(item_id)
         except Exception as e:
             log.exception("generation failed")
             with get_session() as s:
@@ -87,6 +90,15 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
                 s.commit()
             notify.telegram(f"⚠️ Content generation failed for {day} ({kind}): {e}")
             return item
+
+
+def _stopped(item_id: int) -> ContentItem | None:
+    """User pressed Stop: leave the item as the API marked it and clean up half-made files."""
+    log.info("generation #%s stopped by the user", item_id)
+    for d in storage.WORK_DIR.glob(f"*_{item_id}"):
+        shutil.rmtree(d, ignore_errors=True)
+    with get_session() as s:
+        return s.get(ContentItem, item_id)
 
 
 def _persist_media(gen: dict) -> tuple[str, str]:
@@ -160,6 +172,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                 progress.report(f"Planned: {plan['topic']}", 8)
                 gen = engine.create(plan, day, item_id, kind, own=False)
             copy = gen["copy"]
+            progress.check()
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
                 _save_creative(item, gen)
@@ -174,6 +187,8 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                 s.commit()
             _notify_new(item)
             return item
+        except progress.Stopped:
+            return _stopped(item_id)
         except Exception as e:
             log.exception("generation from %s failed", url)
             with get_session() as s:

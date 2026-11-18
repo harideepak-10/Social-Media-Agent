@@ -8,6 +8,10 @@ _item: ContextVar[int | None] = ContextVar("progress_item", default=None)
 _last: dict[int, float] = {}
 
 
+class Stopped(BaseException):
+    """Raised inside a generation when the user pressed Stop. BaseException so 'fallback' handlers don't swallow it."""
+
+
 def bind(item_id: int) -> None:
     """Call at the start of a generation (in the worker thread)."""
     _item.set(item_id)
@@ -22,6 +26,7 @@ def report(stage: str, pct: int | None = None, throttle: float = 0.0) -> None:
         return
     _last[item_id] = now
     from .db import ContentItem, get_session
+    stopped = False
     try:
         with get_session() as s:
             item = s.get(ContentItem, item_id)
@@ -30,5 +35,21 @@ def report(stage: str, pct: int | None = None, throttle: float = 0.0) -> None:
                 if pct is not None:
                     item.progress = max(0, min(100, int(pct)))
                 s.commit()
+            elif item is None or item.status != "generating":
+                stopped = True
     except Exception:
         pass  # progress is cosmetic – never break generation
+    if stopped:
+        raise Stopped()
+
+
+def check() -> None:
+    """Raise Stopped if the user stopped the current item (no throttling)."""
+    item_id = _item.get()
+    if not item_id:
+        return
+    from .db import ContentItem, get_session
+    with get_session() as s:
+        item = s.get(ContentItem, item_id)
+        if item is None or item.status != "generating":
+            raise Stopped()

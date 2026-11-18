@@ -44,9 +44,9 @@ export default function Queue() {
   });
 
   const action = useMutation({
-    mutationFn: ({ id, a }: { id: number; a: "approve" | "reject" }) => api.action(id, a),
+    mutationFn: ({ id, a }: { id: number; a: "approve" | "reject" | "stop" }) => api.action(id, a),
     onSuccess: (item, { a }) => {
-      toast("ok", a === "approve" ? `Approved – goes out ${fmtDate(item.date)} at ${meta?.times.publish ?? "publish time"}` : "Rejected");
+      toast("ok", a === "approve" ? `Approved – goes out ${fmtDate(item.date)} at ${meta?.times.publish ?? "publish time"}` : a === "stop" ? "Stopped" : "Rejected");
       qc.invalidateQueries({ queryKey: ["items"] });
       qc.invalidateQueries({ queryKey: ["meta"] });
     },

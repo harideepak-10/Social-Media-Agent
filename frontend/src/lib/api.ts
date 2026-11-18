@@ -179,7 +179,7 @@ export const api = {
   item: (id: number) => request<ItemDetail>(`/api/items/${id}`),
   update: (id: number, body: { captions?: ItemDetail["captions"]; hashtags?: string; platforms?: Platform[] }) =>
     request<ItemDetail>(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  action: (id: number, action: "approve" | "reject" | "regenerate" | "publish") =>
+  action: (id: number, action: "approve" | "reject" | "regenerate" | "publish" | "stop") =>
     request<ItemDetail>(`/api/items/${id}/${action}`, { method: "POST" }),
   fromUrl: (url: string, kind: "video" | "post", notes: string) =>
     request<{ id: number }>("/api/from-url", { method: "POST", body: JSON.stringify({ url, kind, notes }) }),

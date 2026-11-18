@@ -1,13 +1,13 @@
 import { Link } from "react-router-dom";
 import clsx from "clsx";
-import { Check, Film, Globe, ImageIcon, Loader2, Play, X } from "lucide-react";
+import { Check, Film, Globe, ImageIcon, Loader2, Play, Square, X } from "lucide-react";
 import type { Item } from "../lib/api";
 import { displayTitle, fmtDate, pretty } from "../lib/ui";
 import { ProgressBar, StatusBadge } from "./ui";
 
 export default function ItemCard({ item, onAction, busy }: {
   item: Item;
-  onAction: (id: number, action: "approve" | "reject") => void;
+  onAction: (id: number, action: "approve" | "reject" | "stop") => void;
   busy?: boolean;
 }) {
   const generating = item.status === "generating";
@@ -54,7 +54,13 @@ export default function ItemCard({ item, onAction, busy }: {
         {generating ? (
           <div className="mt-auto space-y-1.5 pt-2">
             <ProgressBar value={item.progress} />
-            <div className="truncate text-xs text-stone-500">{item.stage || "Starting…"}</div>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1 truncate text-xs text-stone-500">{item.stage || "Starting…"}</div>
+              <button disabled={busy} onClick={() => onAction(item.id, "stop")} title="Stop generating" aria-label="Stop generating"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-stone-500 ring-1 ring-stone-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+                <Square className="size-3" /> Stop
+              </button>
+            </div>
           </div>
         ) : (
           <>

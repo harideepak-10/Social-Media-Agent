@@ -2,15 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import {
-  AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, Hash,
-  Loader2, RefreshCw, Send, X, XCircle,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, Hash, Loader2, RefreshCw, Send, Square, X, XCircle } from "lucide-react";
 import { api, type ItemDetail as TItem, type Platform } from "../lib/api";
 import { PLATFORMS, displayTitle, finalCaption, fmtDate, pretty, sourceLabel } from "../lib/ui";
 import { Button, Card, Chip, Confirm, ProgressBar, StatusBadge, useToast } from "../components/ui";
 
-type Action = "approve" | "reject" | "regenerate" | "publish";
+type Action = "approve" | "reject" | "regenerate" | "publish" | "stop";
 
 export default function ItemDetail() {
   const id = Number(useParams().id);
@@ -71,6 +68,7 @@ export default function ItemDetail() {
         reject: "Rejected",
         regenerate: d.source_url ? "Regenerating from the same link…" : "Making a fresh version – it will appear in the queue",
         publish: "Publishing now…",
+        stop: "Stopped – nothing will be saved for this one",
       };
       toast("ok", msg[a]);
       if (a === "regenerate" && !d.source_url) nav("/");
@@ -168,6 +166,8 @@ export default function ItemDetail() {
               <span className="font-medium text-stone-700">{item.stage || "Starting…"}</span>
               <span className="tabular-nums text-stone-400">{item.progress}%</span>
             </div>
+            <Button variant="danger" className="mt-8" icon={<Square className="size-4" />}
+              loading={act.isPending && act.variables === "stop"} onClick={() => setConfirm("stop")}>Stop generating</Button>
           </div>
         </Card>
       ) : (
@@ -275,6 +275,9 @@ export default function ItemDetail() {
       <Confirm open={confirm === "regenerate"} title="Make a new version?"
         body={item.source_url ? "The agent rebuilds this from the same link. The current version is replaced." : "This one is rejected and the agent creates a fresh one for the same day, with a different design."}
         confirmLabel="Regenerate" onConfirm={() => act.mutate("regenerate")} onClose={() => setConfirm(null)} />
+      <Confirm open={confirm === "stop"} title="Stop generating?"
+        body="The agent stops at its next step and throws away what it made so far. You can click Regenerate later to try again."
+        confirmLabel="Stop" variant="danger" onConfirm={() => act.mutate("stop")} onClose={() => setConfirm(null)} />
     </div>
   );
 }

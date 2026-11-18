@@ -18,7 +18,7 @@ from .research import calendar
 
 router = APIRouter(prefix="/api")
 User = Depends(auth.require_user)
-ACTIONS = ("approve", "reject", "regenerate", "publish")
+ACTIONS = ("approve", "reject", "regenerate", "publish", "stop")
 
 
 def _bg(fn, *args, **kw):
@@ -169,7 +169,7 @@ def item_action(item_id: int, action: str, _: str = User):
         raise HTTPException(404, "Unknown action")
     with get_session() as s:
         item = _get(s, item_id)
-        if item.status == "generating" and action != "reject":
+        if item.status == "generating" and action not in ("reject", "stop"):
             raise HTTPException(409, "Still generating – wait until it's ready")
         if action == "approve":
             if item.status not in ("pending_approval", "rejected", "failed", "partial"):
@@ -177,6 +177,10 @@ def item_action(item_id: int, action: str, _: str = User):
             item.status = "approved"
         elif action == "reject":
             item.status = "rejected"
+        elif action == "stop":
+            if item.status != "generating":
+                raise HTTPException(409, "This item isn't generating")
+            item.status, item.stage, item.progress, item.error = "rejected", "", 0, "Stopped by you"
         elif action == "regenerate":
             url, kind, notes, day = item.source_url, item.kind, item.notes, item.run_date
             if url:
