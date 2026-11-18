@@ -26,6 +26,7 @@ export interface Item {
   progress: number;
   error: string;
   quality: { passed: boolean | null; score: number | null; issues: number } | null;
+  origin: "" | "schedule" | "catch_up" | "manual" | "regenerate" | "url";
   created_at: string | null;
   published_at: string | null;
 }

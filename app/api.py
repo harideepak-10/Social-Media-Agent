@@ -53,7 +53,7 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
         "media": media_url(i.media_path), "media_vertical": media_url(i.media_alt_path),
         "thumb": media_url(i.thumb_path), "platforms": i.platform_list,
         "stage": i.stage, "progress": i.progress, "error": i.error,
-        "quality": _quality_summary(i),
+        "quality": _quality_summary(i), "origin": i.origin or ("url" if i.source_url else ""),
         "created_at": i.created_at.isoformat() + "Z" if i.created_at else None,
         "published_at": i.published_at.isoformat() + "Z" if i.published_at else None,
     }
@@ -270,7 +270,7 @@ def item_action(item_id: int, action: str, _: str = User):
         if url:
             _bg(pipeline.generate_from_url, url, kind, notes, None, item_id)
         else:
-            _bg(pipeline.generate_for, day, kind, True)
+            _bg(pipeline.generate_for, day, kind, True, origin="regenerate")
     elif action == "publish":
         _bg(pipeline.publish_item, item_id)
     return result
@@ -303,5 +303,5 @@ def generate(body: GenerateIn, _: str = User):
     kind = body.kind if body.kind in ("video", "post") else None
     if not kind and planner.kind_for(day) not in ("video", "post"):
         raise HTTPException(400, f"Nothing is scheduled on {day:%A} – pick video or post")
-    _bg(pipeline.generate_for, day, kind, True)
+    _bg(pipeline.generate_for, day, kind, True, origin="manual")
     return {"ok": True, "date": day.isoformat()}

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, Hash, Loader2, RefreshCw, Send, ShieldCheck, Square, Trash2, X, XCircle } from "lucide-react";
 import { api, type ItemDetail as TItem, type Platform } from "../lib/api";
-import { PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel } from "../lib/ui";
+import { ORIGIN, PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel } from "../lib/ui";
 import { Button, Card, Chip, Confirm, ProgressBar, StatusBadge, useToast } from "../components/ui";
 
 type Action = "approve" | "reject" | "regenerate" | "publish" | "stop" | "check";
@@ -121,6 +121,7 @@ export default function ItemDetail() {
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-500">
             <span>For {fmtDate(item.date, { weekday: "long", day: "numeric", month: "long" })}</span>
             <span>Source: {sourceLabel(item.source)}</span>
+            {ORIGIN[item.origin] && <span>Made by: {ORIGIN[item.origin]}</span>}
             {item.source_url && (
               <a href={item.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-700 hover:underline">
                 {item.source_url.replace(/^https?:\/\//, "")} <ExternalLink className="size-3" />

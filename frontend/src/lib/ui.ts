@@ -64,3 +64,11 @@ export function downloadHref(src: string): string {
   if (src.includes("/storage/v1/object/public/")) return `${src}${src.includes("?") ? "&" : "?"}download=${encodeURIComponent(name)}`;
   return src;
 }
+
+export const ORIGIN: Record<string, string> = {
+  schedule: "Daily schedule (evening run)",
+  catch_up: "Catch-up – the server was asleep at the scheduled time",
+  manual: "You clicked Generate now",
+  regenerate: "You clicked Regenerate",
+  url: "Create from URL",
+};

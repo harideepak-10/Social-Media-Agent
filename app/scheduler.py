@@ -23,14 +23,32 @@ def _generate_tomorrow():
         log.exception("festival reminder failed")
     day = pipeline.today() + timedelta(days=1)
     log.info("scheduled generation for %s", day)
-    pipeline.generate_for(day)
+    pipeline.generate_for(day, origin="schedule")
+
+
+def catch_up_days(now=None) -> list:
+    """Only what a sleeping server actually missed:
+    - today's item, if it's still before publish time (after that it's too late to post today);
+    - tomorrow's item, if the evening generation time has already passed.
+    Never a second item for a day that already has one (generate_for checks that)."""
+    from datetime import datetime
+    cfg = settings()
+    now = now or datetime.now(pipeline.tz())
+    ph, pm = map(int, cfg.get("publish_time", "10:00").split(":"))
+    gh, gm = map(int, cfg.get("generate_time", "18:00").split(":"))
+    days = []
+    if (now.hour, now.minute) < (ph, pm):
+        days.append(now.date())
+    if (now.hour, now.minute) >= (gh, gm):
+        days.append(now.date() + timedelta(days=1))
+    return days
 
 
 def _catch_up():
-    """On startup: make sure today's and tomorrow's content exist (e.g. if the server was asleep)."""
-    for offset in (0, 1):
+    """On startup (e.g. the free server woke up): make only the content the schedule missed."""
+    for day in catch_up_days():
         try:
-            pipeline.generate_for(pipeline.today() + timedelta(days=offset), only_if_missing=True)
+            pipeline.generate_for(day, only_if_missing=True, origin="catch_up")
         except Exception:
             log.exception("catch-up generation failed")
 
