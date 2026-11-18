@@ -26,6 +26,8 @@ services:
         sync: false
       - key: LOW_MEMORY          # lighter video encoding for the 512 MB free instance
         value: "1"
+      - key: VIDEO_RENDERER      # "pc": videos are queued and made by run_video_worker.bat on your PC
+        value: pc
       - key: TTS_PROVIDER
         value: edge
       - key: DATA_DIR            # put a persistent disk here on a paid plan (see README)

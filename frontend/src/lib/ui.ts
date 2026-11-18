@@ -2,6 +2,7 @@ import type { Platform, Status } from "./api";
 
 export const STATUS: Record<Status, { label: string; cls: string; dot: string }> = {
   generating: { label: "Generating", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200", dot: "bg-indigo-500 animate-pulse" },
+  queued: { label: "Waiting for PC", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200", dot: "bg-indigo-300" },
   pending_approval: { label: "Needs review", cls: "bg-amber-50 text-amber-800 ring-amber-200", dot: "bg-amber-500" },
   approved: { label: "Approved", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500" },
   published: { label: "Published", cls: "bg-emerald-600 text-white ring-emerald-600", dot: "bg-white" },
@@ -53,7 +54,8 @@ export function displayTitle(item: { topic: string; kind: string; source_url: st
     const host = item.source_url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
     return `New ${item.kind} for ${host}`;
   }
-  return item.topic || (item.status === "generating" ? `New ${item.kind} – picking a topic…` : "Untitled");
+  return item.topic || (item.status === "generating" ? `New ${item.kind} – picking a topic…`
+    : item.status === "queued" ? `New ${item.kind} – waiting for your PC` : "Untitled");
 }
 
 /** Link that really downloads: cross-site `download` attributes are ignored by browsers, so for files in
@@ -72,3 +74,10 @@ export const ORIGIN: Record<string, string> = {
   regenerate: "You clicked Regenerate",
   url: "Create from URL",
 };
+
+/** "Your PC is online" / "last seen 5 min ago" for the video worker. */
+export function workerText(w?: { mode: string; online?: boolean; name?: string; last_seen?: string | null }): string {
+  if (!w || w.mode !== "pc") return "";
+  if (w.online) return `Your PC${w.name ? ` (${w.name})` : ""} is online`;
+  return w.last_seen ? `Your PC is offline – last seen ${ago(w.last_seen)}` : "Your PC hasn't connected yet";
+}

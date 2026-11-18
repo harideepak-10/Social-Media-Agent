@@ -7,7 +7,8 @@ import { api, auth } from "../lib/api";
 export default function Layout() {
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: api.meta, refetchInterval: 15000 });
   const review = meta?.counts.pending_approval ?? 0;
-  const running = meta?.counts.generating ?? 0;
+  const running = (meta?.counts.generating ?? 0) + (meta?.counts.queued ?? 0);
+  const pc = meta?.video_worker;
   const live = meta ? Object.values(meta.platforms).some(Boolean) : false;
 
   const link = ({ isActive }: { isActive: boolean }) =>
@@ -47,6 +48,12 @@ export default function Layout() {
           <div className="mt-6 rounded-lg bg-indigo-500/10 px-3 py-2.5 text-xs text-indigo-200">
             <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-indigo-400" />
             {running} item{running > 1 ? "s" : ""} generating…
+          </div>
+        )}
+        {pc?.mode === "pc" && (
+          <div className="mt-3 flex items-center gap-2 px-3 text-xs text-white/60" title="Videos are made by run_video_worker.bat on your PC">
+            <span className={clsx("size-1.5 rounded-full", pc.online ? "bg-emerald-400" : "bg-white/30")} />
+            Video PC: {pc.online ? (pc.state === "working" ? "making a video" : "online") : "offline"}
           </div>
         )}
 

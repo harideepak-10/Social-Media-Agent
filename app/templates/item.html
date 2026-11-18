@@ -19,7 +19,7 @@
       <form method="post" action="/classic/item/{{ item.id }}/reject"><button class="btn-bad">✕ Reject</button></form>
       {% endif %}
       <form method="post" action="/classic/item/{{ item.id }}/regenerate"><button class="btn-ghost">↻ Regenerate</button></form>
-      {% if item.status not in ['generating','published','rejected','dry_run'] %}
+      {% if item.status not in ['generating','queued','published','rejected','dry_run'] %}
       <form method="post" action="/classic/item/{{ item.id }}/publish" onsubmit="return confirm('Publish now to all selected platforms?')"><button>Publish now</button></form>
       {% endif %}
     </div>

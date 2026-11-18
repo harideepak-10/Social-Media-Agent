@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { CalendarDays, ChevronDown, Film, ImageIcon, Inbox, Search, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { api, type Status } from "../lib/api";
-import { fmtDate } from "../lib/ui";
+import { fmtDate, workerText } from "../lib/ui";
 import ItemCard from "../components/ItemCard";
 import { Button, Confirm, EmptyState, useToast } from "../components/ui";
 import { PendingOccasionsBanner } from "../components/Occasions";
@@ -12,7 +12,7 @@ import { PendingOccasionsBanner } from "../components/Occasions";
 const TABS: { id: string; label: string; statuses: Status[] | null }[] = [
   { id: "all", label: "All", statuses: null },
   { id: "review", label: "Needs review", statuses: ["pending_approval"] },
-  { id: "generating", label: "Generating", statuses: ["generating"] },
+  { id: "generating", label: "Generating", statuses: ["generating", "queued"] },
   { id: "approved", label: "Approved", statuses: ["approved"] },
   { id: "published", label: "Published", statuses: ["published", "dry_run", "partial"] },
   { id: "archived", label: "Rejected / failed", statuses: ["rejected", "failed"] },
@@ -40,7 +40,7 @@ export default function Queue() {
   const { data, isLoading } = useQuery({
     queryKey: ["items", tab, kind, search],
     queryFn: () => api.items({ status: statuses?.join(","), kind, q: search, limit: 120 }),
-    refetchInterval: (query) => (query.state.data?.items.some((i) => i.status === "generating") ? 3000 : 20000),
+    refetchInterval: (query) => (query.state.data?.items.some((i) => ["generating", "queued"].includes(i.status)) ? 3000 : 20000),
   });
 
   const action = useMutation({
@@ -134,6 +134,15 @@ export default function Queue() {
         </div>
       )}
 
+      {meta?.video_worker?.mode === "pc" && !meta.video_worker.online && (meta.counts.queued ?? 0) > 0 && (
+        <div className="mt-6 flex items-start gap-3 rounded-2xl bg-indigo-50 px-5 py-4 text-sm text-indigo-900 ring-1 ring-indigo-200">
+          <Film className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <div className="font-semibold">{meta.counts.queued} video{(meta.counts.queued ?? 0) > 1 ? "s are" : " is"} waiting for your PC</div>
+            <div className="mt-0.5 text-indigo-800/80">{workerText(meta.video_worker)}. Double-click <b>run_video_worker.bat</b> in the project folder and keep the window open – the video appears here when it's done.</div>
+          </div>
+        </div>
+      )}
       <PendingOccasionsBanner />
 
       {/* filters */}

@@ -64,6 +64,9 @@ def start() -> BackgroundScheduler:
     sch.add_job(_generate_tomorrow, CronTrigger(hour=gh, minute=gm, timezone=tz), id="generate",
                 max_instances=1, coalesce=True, misfire_grace_time=3 * 3600)
     sch.add_job(pipeline.publish_due, "interval", minutes=5, id="publish", max_instances=1, coalesce=True)
+    if pipeline.video_on_pc():  # videos left half-made by a PC that went offline -> failed, so they can be retried
+        from . import worker
+        sch.add_job(worker.recover_stale, "interval", minutes=5, id="stale_videos", max_instances=1, coalesce=True)
     sch.start()
     threading.Thread(target=_catch_up, daemon=True).start()
     _scheduler = sch

@@ -29,6 +29,29 @@ def today() -> date:
     return datetime.now(tz()).date()
 
 
+def video_on_pc() -> bool:
+    """VIDEO_RENDERER=pc (set on small servers): videos are queued and made by the PC worker (cli.py worker)."""
+    return env("VIDEO_RENDERER", "").strip().lower() == "pc"
+
+
+def worker_name() -> str:
+    import os
+    import socket
+    return (env("WORKER_NAME", "") or ("server" if os.environ.get("RENDER") else socket.gethostname()))[:80]
+
+
+QUEUED_STAGE = "Waiting for your PC to make this video"
+
+
+def _queue_for_pc(item_id: int) -> ContentItem:
+    with get_session() as s:
+        item = s.get(ContentItem, item_id)
+        item.status, item.stage, item.progress, item.error, item.worker = "queued", QUEUED_STAGE, 0, "", ""
+        s.commit()
+        log.info("video #%s queued for the PC worker", item_id)
+        return item
+
+
 def generate_for(day: date, kind: str | None = None, force: bool = False,
                  only_if_missing: bool = False, origin: str = "schedule") -> ContentItem | None:
     """Create the content item for `day`. Returns None if nothing is scheduled.
@@ -46,12 +69,19 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
         if existing and not force:
             log.info("%s: already has an item (#%s, %s) – automatic runs make one per day", day, existing.id, existing.status)
             return existing
-        item = ContentItem(run_date=day, kind=kind, status="generating", origin=origin[:20],
+        item = ContentItem(run_date=day, kind=kind, status="generating", origin=origin[:20], worker=worker_name(),
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
         s.add(item)
         s.commit()
         item_id = item.id
 
+    if kind == "video" and video_on_pc():
+        return _queue_for_pc(item_id)
+    return generate_own(item_id, day, kind)
+
+
+def generate_own(item_id: int, day: date, kind: str) -> ContentItem:
+    """Make the brand's own scheduled post/video for an existing queue row."""
     progress.bind(item_id)
     progress.report("Waiting for the previous job to finish…", 1)
     with _lock:
@@ -116,7 +146,8 @@ def recover_interrupted() -> int:
     (on Render's free plan usually because a video ran out of memory). Mark them failed so they can be retried."""
     from .generators.ffmpeg import low_memory
     with get_session() as s:
-        items = s.scalars(select(ContentItem).where(ContentItem.status == "generating")).all()
+        items = s.scalars(select(ContentItem).where(ContentItem.status == "generating",
+                                                    ContentItem.worker.in_([worker_name(), ""]))).all()
         for it in items:
             hint = (" On a small server this usually means it ran out of memory while making the video – "
                     "videos need about 1 GB; try again, or make videos on your PC." if it.kind == "video" and low_memory()
@@ -183,7 +214,7 @@ def create_url_item(url: str, kind: str = "video", notes: str = "") -> int:
 
 
 def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date | None = None,
-                      item_id: int | None = None) -> ContentItem:
+                      item_id: int | None = None, on_worker: bool = False) -> ContentItem:
     """Create a video or post about ANY website. Goes to the same approval queue."""
     url = _normalize_url(url)
     day = day or today()
@@ -194,8 +225,11 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                                topic=f"{url} …", platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
             s.add(item)
         item.status, item.error, item.stage, item.progress = "generating", "", "Queued", 0
+        item.worker = worker_name()
         s.commit()
         item_id = item.id
+    if kind == "video" and video_on_pc() and not on_worker:
+        return _queue_for_pc(item_id)
 
     progress.bind(item_id)
     progress.report("Waiting for the previous job to finish…", 1)

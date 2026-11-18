@@ -1,7 +1,7 @@
 // Typed client for the agent's JSON API (app/api.py).
 
 export type Status =
-  | "generating" | "pending_approval" | "approved" | "published" | "dry_run"
+  | "generating" | "queued" | "pending_approval" | "approved" | "published" | "dry_run"
   | "partial" | "failed" | "rejected";
 
 export type Platform = "instagram" | "facebook" | "linkedin";
@@ -60,6 +60,15 @@ export interface Meta {
   week: { date: string; kind: "video" | "post" | "none"; festivals: string[]; occasions?: { name: string; status: OccStatus; kind: string }[] }[];
   times: { generate: string; publish: string; timezone: string };
   video: { formats: string[]; voiceover: boolean };
+  video_worker: VideoWorker;
+}
+
+export interface VideoWorker {
+  mode: "server" | "pc";
+  online?: boolean;
+  name?: string;
+  last_seen?: string | null;
+  state?: string;
 }
 
 export type Kind = "video" | "post" | "none";

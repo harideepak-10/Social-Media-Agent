@@ -50,6 +50,8 @@ def main() -> None:
     dr.add_argument("--quick", action="store_true", help="skip the AI / voice test calls")
     lg = sub.add_parser("login")
     lg.add_argument("--url", default=None)
+    wk = sub.add_parser("worker", help="make the videos the website queued (run on your PC)")
+    wk.add_argument("--poll", type=int, default=20, help="seconds between checks for new videos")
     fu = sub.add_parser("from-url")
     fu.add_argument("url")
     fu.add_argument("--kind", choices=["video", "post"], default="video")
@@ -87,6 +89,11 @@ def main() -> None:
     elif args.cmd == "login":
         from app.generators.browser import interactive_login
         interactive_login(args.url)
+    elif args.cmd == "worker":
+        import os
+        os.environ["VIDEO_RENDERER"] = ""  # this machine renders videos itself
+        from app.worker import run_forever
+        run_forever(args.poll)
     elif args.cmd == "from-url":
         from app import pipeline
         item = pipeline.generate_from_url(args.url, args.kind, args.notes)

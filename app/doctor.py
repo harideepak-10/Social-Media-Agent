@@ -168,6 +168,20 @@ def _run(full: bool) -> bool:
     from . import publishers
     st = publishers.status()
     results.append(_line(OK, "Publishing", ", ".join(f"{k}: {'live' if v else 'dry-run'}" for k, v in st.items())))
+    from . import pipeline
+    if pipeline.video_on_pc():
+        try:
+            from . import worker
+            w = worker.status()
+            if w["online"]:
+                results.append(_line(OK, "Video maker", f"your PC '{w['name']}' is online ({w['state'] or 'idle'})"))
+            else:
+                seen = f"last seen {w['last_seen'][:16].replace('T', ' ')} UTC" if w["last_seen"] else "never connected"
+                results.append(_line(WARN, "Video maker", f"your PC is offline ({seen}) – videos wait until you start run_video_worker.bat"))
+        except Exception as e:
+            results.append(_line(WARN, "Video maker", f"can't read the PC status: {str(e)[:100]}"))
+    elif os.environ.get("RENDER") and env("LOW_MEMORY", ""):
+        results.append(_line(WARN, "Video maker", "this 512 MB server – videos may run out of memory. Set VIDEO_RENDERER=pc and run run_video_worker.bat on your PC"))
 
     ok = FAIL not in results
     if not _quiet:

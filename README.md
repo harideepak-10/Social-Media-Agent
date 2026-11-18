@@ -266,6 +266,20 @@ Free tier limits:
 
 On your PC, leave all three empty: the agent keeps using `agent.db` and the `media/` folder.
 
+### Videos on the free plan: made by your PC
+Render's free server (512 MB) runs out of memory making videos, so `render.yaml` sets `VIDEO_RENDERER=pc`:
+the website makes posts itself, but **queues videos** ("Waiting for your PC"). Your PC makes them and they
+appear on the website, with live progress, Stop and the quality check.
+
+One-time setup on your PC:
+1. In the project's `.env` on your PC, set the **same** `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` as on Render (plus `ANTHROPIC_API_KEY`).
+2. Double-click **`run_video_worker.bat`** and keep the window open. It checks for queued videos every 20 seconds.
+
+The sidebar shows **Video PC: online / making a video / offline**. If the PC is off, videos simply wait. If it's switched
+off in the middle of a video, that video is marked failed after 5 minutes so you can click Regenerate.
+While the PC uses Supabase, `run_agent.bat` on the PC also shows the live data – use the website instead, so the
+daily schedule only runs in one place.
+
 ### Render free plan: limits and workarounds
 | Limit | What it means | Workaround |
 |---|---|---|

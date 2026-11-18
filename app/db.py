@@ -76,6 +76,7 @@ class ContentItem(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     quality_json: Mapped[str] = mapped_column(Text, default="")      # AI + technical quality check of the result
     origin: Mapped[str] = mapped_column(String(20), default="")      # schedule | catch_up | manual | regenerate | url
+    worker: Mapped[str] = mapped_column(String(80), default="")      # which machine is making it ("server" or the PC's name)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -159,6 +160,14 @@ class Connection(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class WorkerStatus(Base):
+    """Heartbeat of the PC that makes videos (VIDEO_RENDERER=pc), so the website can show if it's online."""
+    __tablename__ = "worker_status"
+    name: Mapped[str] = mapped_column(String(80), primary_key=True)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    info: Mapped[str] = mapped_column(Text, default="")
+
+
 class StoredFile(Base):
     """Copies of config/*.yaml kept in the cloud database, so dashboard edits survive restarts."""
     __tablename__ = "stored_files"
@@ -183,7 +192,8 @@ def init_db() -> None:
                           ("format", "VARCHAR(40) DEFAULT ''"), ("theme", "VARCHAR(40) DEFAULT ''"),
                           ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''"),
                           ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0"),
-                          ("quality_json", "TEXT DEFAULT ''"), ("origin", "VARCHAR(20) DEFAULT ''")):
+                          ("quality_json", "TEXT DEFAULT ''"), ("origin", "VARCHAR(20) DEFAULT ''"),
+                          ("worker", "VARCHAR(80) DEFAULT ''")):
             if name not in cols:
                 conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}"))
     if is_cloud_db():

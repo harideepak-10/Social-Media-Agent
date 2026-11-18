@@ -173,7 +173,20 @@ def meta(_: str = User):
                   "timezone": settings().get("timezone")},
         "video": {"formats": (settings().get("video") or {}).get("formats", []),
                   "voiceover": (settings().get("video") or {}).get("voiceover", True)},
+        "video_worker": _video_worker(),
     }
+
+
+def _video_worker() -> dict:
+    """Where videos are made: on this server, or by the PC worker (with its online status)."""
+    if not pipeline.video_on_pc():
+        return {"mode": "server"}
+    from . import worker
+    try:
+        worker.recover_stale()
+        return {"mode": "pc", **worker.status()}
+    except Exception:
+        return {"mode": "pc", "online": False, "name": "", "last_seen": None, "state": ""}
 
 
 # ── content queue ─────────────────────────────────────────────────────────
@@ -191,7 +204,7 @@ def list_items(status: str | None = None, kind: str | None = None, q: str | None
             query = query.where(or_(ContentItem.topic.ilike(like), ContentItem.product.ilike(like),
                                     ContentItem.source_url.ilike(like), ContentItem.format.ilike(like)))
         total = s.scalar(select(func.count()).select_from(query.subquery()))
-        generating_first = case((ContentItem.status == "generating", 0), else_=1)
+        generating_first = case((ContentItem.status.in_(["generating", "queued"]), 0), else_=1)
         rows = s.scalars(query.order_by(generating_first, ContentItem.run_date.desc(), ContentItem.id.desc())
                          .limit(min(limit, 200)).offset(offset)).all()
         return {"total": total, "items": [serialize(i) for i in rows]}
@@ -234,8 +247,8 @@ def item_action(item_id: int, action: str, _: str = User):
         raise HTTPException(404, "Unknown action")
     with get_session() as s:
         item = _get(s, item_id)
-        if item.status == "generating" and action not in ("reject", "stop"):
-            raise HTTPException(409, "Still generating – wait until it's ready")
+        if item.status in ("generating", "queued") and action not in ("reject", "stop"):
+            raise HTTPException(409, "Still being made – wait until it's ready, or press Stop")
         if action == "approve":
             if item.status not in ("pending_approval", "rejected", "failed", "partial"):
                 raise HTTPException(409, f"Can't approve an item that is {item.status}")
@@ -246,8 +259,8 @@ def item_action(item_id: int, action: str, _: str = User):
             if not item.media_path:
                 raise HTTPException(409, "Nothing to check yet")
         elif action == "stop":
-            if item.status != "generating":
-                raise HTTPException(409, "This item isn't generating")
+            if item.status not in ("generating", "queued"):
+                raise HTTPException(409, "This item isn't being made")
             item.status, item.stage, item.progress, item.error = "rejected", "", 0, "Stopped by you"
         elif action == "regenerate":
             url, kind, notes, day = item.source_url, item.kind, item.notes, item.run_date

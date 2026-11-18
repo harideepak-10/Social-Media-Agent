@@ -10,7 +10,7 @@ export default function ItemCard({ item, onAction, busy }: {
   onAction: (id: number, action: "approve" | "reject" | "stop" | "delete") => void;
   busy?: boolean;
 }) {
-  const generating = item.status === "generating";
+  const generating = item.status === "generating" || item.status === "queued";
   const video = item.kind === "video";
 
   return (
@@ -33,6 +33,8 @@ export default function ItemCard({ item, onAction, busy }: {
           )}
           <div className="absolute left-3 top-3 flex gap-1.5">
             <StatusBadge status={item.status} className="bg-white/95 shadow-sm backdrop-blur" />
+          </div>
+          <div className="absolute bottom-3 left-3 flex gap-1.5">
             {item.quality && item.quality.passed !== null && !generating && (
               <span title={item.quality.passed ? "AI quality check passed" : `AI quality check: ${item.quality.issues} thing(s) to look at`}
                 className={clsx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold shadow-sm",

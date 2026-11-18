@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, Hash, Loader2, RefreshCw, Send, ShieldCheck, Square, Trash2, X, XCircle } from "lucide-react";
 import { api, type ItemDetail as TItem, type Platform } from "../lib/api";
-import { ORIGIN, PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel } from "../lib/ui";
+import { ORIGIN, PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel, workerText } from "../lib/ui";
 import { Button, Card, Chip, Confirm, ProgressBar, StatusBadge, useToast } from "../components/ui";
 
 type Action = "approve" | "reject" | "regenerate" | "publish" | "stop" | "check";
@@ -18,7 +18,7 @@ export default function ItemDetail() {
   const { data: item, isLoading, error } = useQuery({
     queryKey: ["item", id],
     queryFn: () => api.item(id),
-    refetchInterval: (q) => (q.state.data?.status === "generating" ? 2500 : false),
+    refetchInterval: (q) => (["generating", "queued"].includes(q.state.data?.status ?? "") ? 2500 : false),
   });
 
   // ── editable state ──
@@ -97,7 +97,9 @@ export default function ItemDetail() {
     </div>
   );
 
-  const generating = item.status === "generating";
+  const generating = item.status === "generating" || item.status === "queued";
+  const queued = item.status === "queued";
+  const pc = meta?.video_worker;
   const editable = !generating && !["published", "dry_run"].includes(item.status);
   const warning = item.error && item.status !== "failed" ? item.error : "";
 
@@ -174,10 +176,19 @@ export default function ItemDetail() {
         <Card className="mt-8 p-8 md:p-12">
           <div className="mx-auto max-w-xl text-center">
             <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand-50"><Loader2 className="size-7 animate-spin text-brand-600" /></div>
-            <h2 className="mt-5 text-xl font-bold">The agent is creating your {item.kind}</h2>
+            <h2 className="mt-5 text-xl font-bold">{queued ? "Waiting for your PC to make this video" : `The agent is creating your ${item.kind}`}</h2>
             <p className="mt-1 text-sm text-stone-500">
-              {item.kind === "video" ? "Videos take about 4–8 minutes (16:9 and 9:16 versions)." : "Posts take about a minute."} You can leave this page – it keeps working.
+              {queued
+                ? "Videos are made on your PC because this server is too small for them. Start run_video_worker.bat on your PC – it picks this up within a minute."
+                : item.kind === "video" ? "Videos take about 4–8 minutes (16:9 and 9:16 versions)." : "Posts take about a minute."} You can leave this page – it keeps working.
             </p>
+            {pc?.mode === "pc" && item.kind === "video" && (
+              <div className={clsx("mx-auto mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ring-1",
+                pc.online ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200")}>
+                <span className={clsx("size-1.5 rounded-full", pc.online ? "bg-emerald-500" : "bg-amber-500")} />
+                {workerText(pc)}
+              </div>
+            )}
             <ProgressBar value={item.progress} className="mt-8 h-2" />
             <div className="mt-3 flex justify-between text-sm">
               <span className="font-medium text-stone-700">{item.stage || "Starting…"}</span>
