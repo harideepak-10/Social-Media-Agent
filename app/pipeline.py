@@ -63,11 +63,13 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
             plan = planner.plan(day, kind, product)
             progress.report(f"Planned: {plan['topic']}", 8)
             gen = engine.create(plan, day, item_id, kind, own=True)
+            qa = _quality(kind, gen, plan["topic"], item_id)
             copy = gen["copy"]
             progress.check()
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
                 _save_creative(item, gen)
+                item.quality = qa
                 item.source = plan["source"]
                 item.topic = plan["topic"]
                 item.angle = plan["angle"] + (f"\nTrend: {plan['trend_used']}" if plan.get("trend_used") else "")
@@ -90,6 +92,23 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
                 s.commit()
             notify.telegram(f"⚠️ Content generation failed for {day} ({kind}): {e}")
             return item
+
+
+def _quality(kind: str, gen: dict, topic: str, item_id: int) -> dict:
+    """Technical + AI check of the finished files (never fails the item)."""
+    from .creative import quality
+    work = storage.WORK_DIR / f"qa_{item_id}"
+    try:
+        platforms = (settings().get("platforms") or {}).get(kind, [])
+        return quality.check(kind, gen, platforms, topic, work)
+    except progress.Stopped:
+        raise
+    except Exception as e:
+        log.exception("quality check failed")
+        return {"passed": None, "score": None, "summary": f"Quality check couldn't run: {str(e)[:200]}",
+                "problems": [], "checks": []}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def _stopped(item_id: int) -> ContentItem | None:
@@ -171,11 +190,13 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                 plan = planner.plan_for_url(url, kind, day, notes)
                 progress.report(f"Planned: {plan['topic']}", 8)
                 gen = engine.create(plan, day, item_id, kind, own=False)
+                qa = _quality(kind, gen, plan["topic"], item_id)
             copy = gen["copy"]
             progress.check()
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
                 _save_creative(item, gen)
+                item.quality = qa
                 item.topic = f"{brand['name']}: {plan['topic']}"[:300]
                 item.angle = plan["angle"]
                 item.captions = copy.get("captions", {})

@@ -18,7 +18,8 @@ from .research import calendar
 
 router = APIRouter(prefix="/api")
 User = Depends(auth.require_user)
-ACTIONS = ("approve", "reject", "regenerate", "publish", "stop")
+ACTIONS = ("approve", "reject", "regenerate", "publish", "stop", "check")
+DELETABLE = ("rejected", "failed")
 
 
 def _bg(fn, *args, **kw):
@@ -36,6 +37,14 @@ def saved_as(path: str) -> str:
     return storage.display_path(path, DATA_DIR)
 
 
+def _quality_summary(i: ContentItem) -> dict | None:
+    q = i.quality
+    if not q:
+        return None
+    return {"passed": q.get("passed"), "score": q.get("score"),
+            "issues": len(q.get("problems") or []) + sum(c.get("status") == "fail" for c in q.get("checks") or [])}
+
+
 def serialize(i: ContentItem, full: bool = False) -> dict:
     data = {
         "id": i.id, "date": i.run_date.isoformat(), "kind": i.kind, "status": i.status,
@@ -44,6 +53,7 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
         "media": media_url(i.media_path), "media_vertical": media_url(i.media_alt_path),
         "thumb": media_url(i.thumb_path), "platforms": i.platform_list,
         "stage": i.stage, "progress": i.progress, "error": i.error,
+        "quality": _quality_summary(i),
         "created_at": i.created_at.isoformat() + "Z" if i.created_at else None,
         "published_at": i.published_at.isoformat() + "Z" if i.published_at else None,
     }
@@ -53,7 +63,7 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
         except ValueError:
             script = i.script_json
         data.update(files=[f for f in (saved_as(i.media_path), saved_as(i.media_alt_path)) if f],
-                    angle=i.angle, captions=i.captions, hashtags=i.hashtags, results=i.results, script=script,
+                    quality_report=i.quality, angle=i.angle, captions=i.captions, hashtags=i.hashtags, results=i.results, script=script,
                     previews={p: pipeline.full_caption(i, p) for p in i.platform_list} if i.captions else {})
     return data
 
@@ -63,6 +73,61 @@ def _get(s, item_id: int) -> ContentItem:
     if not item:
         raise HTTPException(404, "Item not found")
     return item
+
+
+def _run_check(item_id: int) -> dict:
+    """Run the technical + AI quality check on an existing item's files."""
+    import shutil
+    from . import storage
+    from .config import settings
+    from .creative import quality
+    with get_session() as s:
+        item = _get(s, item_id)
+        kind, media, alt, captions, tags, topic = (item.kind, item.media_path, item.media_alt_path, item.captions,
+                                                   item.hashtags, item.topic)
+        platforms = item.platform_list or (settings().get("platforms") or {}).get(kind, [])
+    work = storage.WORK_DIR / f"qa_{item_id}"
+    try:
+        gen = {"media": storage.local_file(media), "alt": storage.local_file(alt) if alt else None,
+               "copy": {"captions": captions}, "hashtags": tags}
+        report = quality.check(kind, gen, platforms, topic, work)
+    except Exception as e:
+        raise HTTPException(400, f"Quality check failed: {str(e)[:200]}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    with get_session() as s:
+        item = _get(s, item_id)
+        item.quality = report
+        s.commit()
+        return serialize(item, full=True)
+
+
+def _delete_item(s, item: ContentItem) -> None:
+    from . import storage
+    for ref in {item.media_path, item.media_alt_path, item.thumb_path}:
+        storage.delete_media(ref)
+    s.delete(item)
+
+
+@router.delete("/items/{item_id}")
+def delete_item(item_id: int, _: str = User):
+    with get_session() as s:
+        item = _get(s, item_id)
+        if item.status not in DELETABLE:
+            raise HTTPException(409, "Only rejected, stopped or failed items can be deleted")
+        _delete_item(s, item)
+        s.commit()
+    return {"ok": True}
+
+
+@router.post("/items/delete-rejected")
+def delete_rejected(_: str = User):
+    with get_session() as s:
+        items = s.scalars(select(ContentItem).where(ContentItem.status.in_(DELETABLE))).all()
+        for item in items:
+            _delete_item(s, item)
+        s.commit()
+    return {"deleted": len(items)}
 
 
 # ── auth ──────────────────────────────────────────────────────────────────
@@ -177,6 +242,9 @@ def item_action(item_id: int, action: str, _: str = User):
             item.status = "approved"
         elif action == "reject":
             item.status = "rejected"
+        elif action == "check":
+            if not item.media_path:
+                raise HTTPException(409, "Nothing to check yet")
         elif action == "stop":
             if item.status != "generating":
                 raise HTTPException(409, "This item isn't generating")
@@ -196,6 +264,8 @@ def item_action(item_id: int, action: str, _: str = User):
         s.commit()
         result = serialize(item, full=True)
 
+    if action == "check":
+        return _run_check(item_id)
     if action == "regenerate":
         if url:
             _bg(pipeline.generate_from_url, url, kind, notes, None, item_id)

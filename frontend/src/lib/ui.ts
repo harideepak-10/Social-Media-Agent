@@ -55,3 +55,12 @@ export function displayTitle(item: { topic: string; kind: string; source_url: st
   }
   return item.topic || (item.status === "generating" ? `New ${item.kind} – picking a topic…` : "Untitled");
 }
+
+/** Link that really downloads: cross-site `download` attributes are ignored by browsers, so for files in
+ *  Supabase Storage we ask Supabase to send it as an attachment instead. */
+export function downloadHref(src: string): string {
+  if (!src) return src;
+  const name = decodeURIComponent(src.split("?")[0].split("/").pop() || "download");
+  if (src.includes("/storage/v1/object/public/")) return `${src}${src.includes("?") ? "&" : "?"}download=${encodeURIComponent(name)}`;
+  return src;
+}

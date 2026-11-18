@@ -44,15 +44,16 @@ Open <http://localhost:8000> and log in with `DASHBOARD_USER` / `DASHBOARD_PASSW
 
 - **Content queue:** every post and video as a card, with a strip showing the week ahead.
   - Filter by Needs review, Generating, Approved, Published, or Rejected/failed; filter by type; search.
-  - One-click Approve or Reject on a card.
-  - **Generate now** makes today's scheduled content, a post or a video.
+  - One-click Approve or Reject on a card, **Stop** on anything still generating, **Delete** on rejected/failed items (or **Delete all** in that tab).
+  - **Generate now** always makes a new post or video. The automatic runs (18:00 and the start-up catch-up) make at most one item per day.
 - **Review page:**
   - Post preview, or a video player with a 16:9 / 9:16 switch, plus downloads.
   - Video storyboard.
   - Platform toggles.
   - A caption editor per platform, with a character counter and a "preview with hashtags" view.
   - Hashtag chips (LinkedIn uses the first 5).
-  - Approve, Reject, Regenerate and Publish now.
+  - Approve, Reject, Regenerate, Publish now, Stop (while generating) and Delete (rejected/failed).
+  - **AI quality check:** every new post/video is checked before it reaches you – size, blank frames, video length and sound, caption limits, plus the AI looking at the poster or video frames with the captions (score out of 10 and a list of problems). Use **Check again** any time.
   - While an item is generating, you see a live progress bar and the current step, e.g. "Rendering 9:16 video – 64%".
 - **Create from URL:** paste any link, choose video or post, add an optional focus, and watch it being made.
 - **Schedule & calendar:**
@@ -226,27 +227,22 @@ The manual way (tokens in `.env`) and what each app needs:
 ### Telegram alerts (optional)
 Create a bot with @BotFather, then fill in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. You'll get the image or thumbnail and a dashboard link for each new item.
 
-## 5. Deploy: frontend on Netlify, backend on Render
+## 5. Deploy on Render (one service: dashboard + API)
 
 ```
-Browser ──► Netlify (React dashboard)
-              │  /api, /media, /brand are forwarded ──►  Render (Docker: FastAPI + scheduler + Chromium + ffmpeg)
+Browser ──► Render (Docker: React dashboard + FastAPI + scheduler + Chromium + ffmpeg) ──► Supabase (database + files)
 ```
-Netlify forwards the API, so the browser only ever talks to Netlify. No CORS setup and no API URL to configure.
+The dashboard is built into the same service, so there's no CORS setup and no API URL to configure.
 
-### Backend → Render
 1. Push the repo to GitHub.
 2. On render.com, choose **New → Blueprint** and pick the repo. Render reads `render.yaml`.
-3. When asked, fill in:
+3. Under **Environment**, fill in (your `.env` file is **not** used on Render):
    - `ANTHROPIC_API_KEY`
-   - `DASHBOARD_PASSWORD`
-   - `PUBLIC_BASE_URL` (your Render URL, e.g. `https://social-media-agent.onrender.com`; you can add it after the first deploy)
-4. Deploy. The first build takes about 10 minutes because it includes the Chromium image. Then open `https://<your-app>.onrender.com/health`; it should return `{"ok": true}`.
-
-### Frontend → Netlify
-1. If your Render URL is different from `social-media-agent.onrender.com`, replace it in **all three** proxy rules in `netlify.toml` and push.
-2. On app.netlify.com, choose **Add new site → Import from Git** and pick the repo. Netlify reads `netlify.toml` (base `frontend`, build `npm ci && npm run build`, publish `dist`).
-3. Deploy, open the Netlify URL and log in with `DASHBOARD_USER` / `DASHBOARD_PASSWORD`.
+   - `DASHBOARD_USER`, `DASHBOARD_PASSWORD`
+   - `PUBLIC_BASE_URL` (your Render URL, e.g. `https://social-media-agent-y7yv.onrender.com`, no trailing `/`)
+   - `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (see Supabase below)
+4. Deploy. The first build takes about 10 minutes because it includes Chromium. Then open `https://<your-app>.onrender.com/health`; it should return `{"ok": true}`.
+5. Log in and open **Settings → Status → Full check**. Every line should be green.
 
 ### Supabase: free database + file storage (so nothing is lost on Render)
 Render's free plan wipes the server's disk on every restart. With Supabase connected:
@@ -258,7 +254,7 @@ Render's free plan wipes the server's disk on every restart. With Supabase conne
 Steps:
 1. On supabase.com, create a **new project**. Pick region **South Asia (Mumbai)** and save the database password.
 2. Click **Connect → Session pooler** and copy the URI. Replace `[YOUR-PASSWORD]` with your database password and use the result as `DATABASE_URL`. Use the pooler URI: the direct connection needs IPv6, which Render doesn't have.
-3. Go to **Project Settings → API keys**. Use the **Project URL** as `SUPABASE_URL` and the **secret / service_role** key as `SUPABASE_SERVICE_KEY`. Keep that key secret; it goes only in Render's environment.
+3. Go to **Project Settings → API keys**. Use the **Project URL** as `SUPABASE_URL` and the **secret** (`sb_secret_…`) or legacy **service_role** key as `SUPABASE_SERVICE_KEY`; the publishable / anon key does not work. Keep that key secret; it goes only in Render's environment.
 4. Add these three values in Render (Environment). A public `media` bucket is created automatically on the first upload.
 5. Open **Settings → Status & health** in the dashboard. *Database* should show "cloud Postgres" and *File storage* should show "Supabase bucket".
 

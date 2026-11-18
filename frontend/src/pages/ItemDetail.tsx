@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, Hash, Loader2, RefreshCw, Send, Square, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, Hash, Loader2, RefreshCw, Send, ShieldCheck, Square, Trash2, X, XCircle } from "lucide-react";
 import { api, type ItemDetail as TItem, type Platform } from "../lib/api";
-import { PLATFORMS, displayTitle, finalCaption, fmtDate, pretty, sourceLabel } from "../lib/ui";
+import { PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel } from "../lib/ui";
 import { Button, Card, Chip, Confirm, ProgressBar, StatusBadge, useToast } from "../components/ui";
 
-type Action = "approve" | "reject" | "regenerate" | "publish" | "stop";
+type Action = "approve" | "reject" | "regenerate" | "publish" | "stop" | "check";
 
 export default function ItemDetail() {
   const id = Number(useParams().id);
@@ -27,7 +27,7 @@ export default function ItemDetail() {
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [tab, setTab] = useState<Platform>("instagram");
   const [showFinal, setShowFinal] = useState(false);
-  const [confirm, setConfirm] = useState<Action | null>(null);
+  const [confirm, setConfirm] = useState<Action | "delete" | null>(null);
 
   useEffect(() => {
     if (!item) return;
@@ -56,6 +56,17 @@ export default function ItemDetail() {
     onError: (e: Error) => toast("error", e.message),
   });
 
+  const del = useMutation({
+    mutationFn: () => api.deleteItem(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["meta"] });
+      toast("ok", "Deleted");
+      nav("/");
+    },
+    onError: (e: Error) => toast("error", e.message),
+  });
+
   const act = useMutation({
     mutationFn: async (a: Action) => {
       if (dirty && (a === "approve" || a === "publish")) await api.update(id, { captions, hashtags: tags.join(" "), platforms });
@@ -69,6 +80,7 @@ export default function ItemDetail() {
         regenerate: d.source_url ? "Regenerating from the same link…" : "Making a fresh version – it will appear in the queue",
         publish: "Publishing now…",
         stop: "Stopped – nothing will be saved for this one",
+        check: d.quality_report && "passed" in d.quality_report && d.quality_report.passed ? "Quality check passed" : "Quality check done – see the results",
       };
       toast("ok", msg[a]);
       if (a === "regenerate" && !d.source_url) nav("/");
@@ -135,6 +147,10 @@ export default function ItemDetail() {
               <Button variant="dark" icon={<Send className="size-4" />} onClick={() => setConfirm("publish")}
                 loading={act.isPending && act.variables === "publish"}>Publish now</Button>
             )}
+            {["rejected", "failed"].includes(item.status) && (
+              <Button variant="danger" icon={<Trash2 className="size-4" />} loading={del.isPending}
+                onClick={() => setConfirm("delete")}>Delete</Button>
+            )}
           </div>
         )}
       </div>
@@ -175,6 +191,7 @@ export default function ItemDetail() {
           {/* preview */}
           <div className="space-y-6">
             <Preview item={item} />
+            <QualityCard item={item} checking={act.isPending && act.variables === "check"} onCheck={() => act.mutate("check")} />
             <Details item={item} />
           </div>
 
@@ -275,6 +292,9 @@ export default function ItemDetail() {
       <Confirm open={confirm === "regenerate"} title="Make a new version?"
         body={item.source_url ? "The agent rebuilds this from the same link. The current version is replaced." : "This one is rejected and the agent creates a fresh one for the same day, with a different design."}
         confirmLabel="Regenerate" onConfirm={() => act.mutate("regenerate")} onClose={() => setConfirm(null)} />
+      <Confirm open={confirm === "delete"} title="Delete this item?"
+        body="The item and its poster/video files are removed for good (also from cloud storage). This can't be undone."
+        confirmLabel="Delete" variant="danger" onConfirm={() => del.mutate()} onClose={() => setConfirm(null)} />
       <Confirm open={confirm === "stop"} title="Stop generating?"
         body="The agent stops at its next step and throws away what it made so far. You can click Regenerate later to try again."
         confirmLabel="Stop" variant="danger" onConfirm={() => act.mutate("stop")} onClose={() => setConfirm(null)} />
@@ -299,7 +319,7 @@ function Preview({ item }: { item: TItem }) {
         </div>
         <div className="flex items-center justify-between px-5 py-3 text-sm">
           <SavedAs label="1080 × 1350" file={item.files?.[0]} />
-          <a href={item.media} download className="inline-flex items-center gap-1.5 font-semibold text-stone-700 hover:text-brand-700"><Download className="size-4" /> Download</a>
+          <a href={downloadHref(item.media)} download className="inline-flex items-center gap-1.5 font-semibold text-stone-700 hover:text-brand-700"><Download className="size-4" /> Download</a>
         </div>
       </Card>
     );
@@ -322,7 +342,7 @@ function Preview({ item }: { item: TItem }) {
       <div className="flex items-center justify-between px-5 py-3 text-sm">
         <SavedAs label={view === "tall" ? "1080 × 1920" : "1920 × 1080"}
           file={item.files?.find((f) => (view === "tall" ? f.includes("9x16") || f.includes("vertical") : !f.includes("9x16"))) ?? item.files?.[0]} />
-        <a href={src} download className="inline-flex items-center gap-1.5 font-semibold text-stone-700 hover:text-brand-700"><Download className="size-4" /> Download</a>
+        <a href={downloadHref(src)} download className="inline-flex items-center gap-1.5 font-semibold text-stone-700 hover:text-brand-700"><Download className="size-4" /> Download</a>
       </div>
     </Card>
   );
@@ -338,6 +358,56 @@ function SavedAs({ label, file }: { label: string; file?: string }) {
 }
 
 type Scene = { eyebrow?: string; headline?: string; accent?: string; bullets?: { text?: string }[]; badges?: { value?: string; label?: string }[]; voice?: string };
+
+function QualityCard({ item, checking, onCheck }: { item: TItem; checking: boolean; onCheck: () => void }) {
+  const q = item.quality_report && "checks" in item.quality_report ? item.quality_report : null;
+  const tone = !q ? "stone" : q.passed ? "emerald" : q.passed === false ? "amber" : "stone";
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className={clsx("size-5", tone === "emerald" ? "text-emerald-600" : tone === "amber" ? "text-amber-600" : "text-stone-400")} />
+          <h2 className="font-bold">AI quality check</h2>
+          {q && (
+            <span className={clsx("rounded-full px-2 py-0.5 text-xs font-bold ring-1",
+              tone === "emerald" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : tone === "amber" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-stone-50 text-stone-600 ring-stone-200")}>
+              {q.passed ? "Passed" : q.passed === false ? "Needs a look" : "Not checked"}{q.score ? ` · ${q.score}/10` : ""}
+            </span>
+          )}
+        </div>
+        {item.media && (
+          <Button variant="outline" className="px-3 py-1.5 text-xs" icon={<RefreshCw className="size-3.5" />} loading={checking} onClick={onCheck}>
+            {q ? "Check again" : "Check quality"}
+          </Button>
+        )}
+      </div>
+      {!q ? (
+        <p className="mt-3 text-sm text-stone-500">{checking ? "The AI is looking at it…" : "Not checked yet. New posts and videos are checked automatically."}</p>
+      ) : (
+        <>
+          {q.summary && <p className="mt-3 text-sm text-stone-700">{q.summary}</p>}
+          {q.problems.length > 0 && (
+            <ul className="mt-3 space-y-1.5">
+              {q.problems.map((p, i) => (
+                <li key={i} className="flex gap-2 text-sm text-amber-800"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{p}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-4 grid gap-1.5 sm:grid-cols-2">
+            {q.checks.map((c) => (
+              <div key={c.name} className="flex items-center gap-2 text-xs">
+                {c.status === "ok" ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600" /> :
+                  c.status === "warn" ? <AlertTriangle className="size-3.5 shrink-0 text-amber-500" /> : <XCircle className="size-3.5 shrink-0 text-red-600" />}
+                <span className="font-semibold text-stone-700">{c.name}</span>
+                <span className="truncate text-stone-400">{c.detail}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
 
 function Details({ item }: { item: TItem }) {
   const [open, setOpen] = useState(false);

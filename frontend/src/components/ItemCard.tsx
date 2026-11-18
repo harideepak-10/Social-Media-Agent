@@ -1,13 +1,13 @@
 import { Link } from "react-router-dom";
 import clsx from "clsx";
-import { Check, Film, Globe, ImageIcon, Loader2, Play, Square, X } from "lucide-react";
+import { AlertTriangle, Check, Film, Globe, ImageIcon, Loader2, Play, ShieldCheck, Square, Trash2, X } from "lucide-react";
 import type { Item } from "../lib/api";
 import { displayTitle, fmtDate, pretty } from "../lib/ui";
 import { ProgressBar, StatusBadge } from "./ui";
 
 export default function ItemCard({ item, onAction, busy }: {
   item: Item;
-  onAction: (id: number, action: "approve" | "reject" | "stop") => void;
+  onAction: (id: number, action: "approve" | "reject" | "stop" | "delete") => void;
   busy?: boolean;
 }) {
   const generating = item.status === "generating";
@@ -33,6 +33,14 @@ export default function ItemCard({ item, onAction, busy }: {
           )}
           <div className="absolute left-3 top-3 flex gap-1.5">
             <StatusBadge status={item.status} className="bg-white/95 shadow-sm backdrop-blur" />
+            {item.quality && item.quality.passed !== null && !generating && (
+              <span title={item.quality.passed ? "AI quality check passed" : `AI quality check: ${item.quality.issues} thing(s) to look at`}
+                className={clsx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold shadow-sm",
+                  item.quality.passed ? "bg-emerald-50/95 text-emerald-700" : "bg-amber-50/95 text-amber-700")}>
+                {item.quality.passed ? <ShieldCheck className="size-3" /> : <AlertTriangle className="size-3" />}
+                {item.quality.score ? `${item.quality.score}/10` : item.quality.passed ? "OK" : "Check"}
+              </span>
+            )}
           </div>
           <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-ink-900/80 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
             {video ? <Film className="size-3" /> : <ImageIcon className="size-3" />} {video ? "Video" : "Post"}
@@ -66,6 +74,14 @@ export default function ItemCard({ item, onAction, busy }: {
           <>
             {(item.format || item.theme) && (
               <div className="truncate text-xs text-stone-400">{[item.format, item.theme].filter(Boolean).map(pretty).join(" · ")}</div>
+            )}
+            {["rejected", "failed"].includes(item.status) && (
+              <div className="mt-auto flex justify-end pt-2">
+                <button disabled={busy} onClick={() => onAction(item.id, "delete")} title="Delete" aria-label="Delete"
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-stone-500 ring-1 ring-stone-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+                  <Trash2 className="size-3.5" /> Delete
+                </button>
+              </div>
             )}
             {item.status === "pending_approval" && (
               <div className="mt-auto flex gap-2 pt-2">

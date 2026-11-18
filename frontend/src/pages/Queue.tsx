@@ -2,11 +2,11 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CalendarDays, ChevronDown, Film, ImageIcon, Inbox, Search, Sparkles, Wand2 } from "lucide-react";
+import { CalendarDays, ChevronDown, Film, ImageIcon, Inbox, Search, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { api, type Status } from "../lib/api";
 import { fmtDate } from "../lib/ui";
 import ItemCard from "../components/ItemCard";
-import { Button, EmptyState, useToast } from "../components/ui";
+import { Button, Confirm, EmptyState, useToast } from "../components/ui";
 import { PendingOccasionsBanner } from "../components/Occasions";
 
 const TABS: { id: string; label: string; statuses: Status[] | null }[] = [
@@ -44,9 +44,21 @@ export default function Queue() {
   });
 
   const action = useMutation({
-    mutationFn: ({ id, a }: { id: number; a: "approve" | "reject" | "stop" }) => api.action(id, a),
+    mutationFn: async ({ id, a }: { id: number; a: "approve" | "reject" | "stop" | "delete" }) =>
+      a === "delete" ? (await api.deleteItem(id), null) : api.action(id, a),
     onSuccess: (item, { a }) => {
-      toast("ok", a === "approve" ? `Approved – goes out ${fmtDate(item.date)} at ${meta?.times.publish ?? "publish time"}` : a === "stop" ? "Stopped" : "Rejected");
+      toast("ok", a === "delete" ? "Deleted" : a === "approve" && item ? `Approved – goes out ${fmtDate(item.date)} at ${meta?.times.publish ?? "publish time"}` : a === "stop" ? "Stopped" : "Rejected");
+      qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["meta"] });
+    },
+    onError: (e: Error) => toast("error", e.message),
+  });
+
+  const [confirmClear, setConfirmClear] = useState(false);
+  const clear = useMutation({
+    mutationFn: api.deleteRejected,
+    onSuccess: ({ deleted }) => {
+      toast("ok", `Deleted ${deleted} item${deleted === 1 ? "" : "s"}`);
       qc.invalidateQueries({ queryKey: ["items"] });
       qc.invalidateQueries({ queryKey: ["meta"] });
     },
@@ -157,6 +169,16 @@ export default function Queue() {
 
       {/* grid */}
       <div className="mt-6">
+        {tab === "archived" && items.length > 0 && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm ring-1 ring-stone-200/80">
+            <span className="text-stone-600">Rejected, stopped and failed items – nothing here is ever posted.</span>
+            <Button variant="danger" className="px-3 py-1.5 text-xs" icon={<Trash2 className="size-3.5" />} loading={clear.isPending}
+              onClick={() => setConfirmClear(true)}>Delete all</Button>
+          </div>
+        )}
+        <Confirm open={confirmClear} title="Delete all rejected and failed items?"
+          body={`All ${count(TABS.find((t) => t.id === "archived")!)} rejected, stopped and failed items and their files are removed for good.`}
+          confirmLabel="Delete all" variant="danger" onConfirm={() => clear.mutate()} onClose={() => setConfirmClear(false)} />
         {isLoading ? (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => <div key={i} className="shimmer h-80 rounded-2xl bg-stone-200/60" />)}

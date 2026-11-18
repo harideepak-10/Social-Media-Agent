@@ -25,13 +25,23 @@ export interface Item {
   stage: string;
   progress: number;
   error: string;
+  quality: { passed: boolean | null; score: number | null; issues: number } | null;
   created_at: string | null;
   published_at: string | null;
 }
 
 export interface PublishResult { ok: boolean; dry_run?: boolean; id: string; error: string }
 
+export interface QualityReport {
+  passed: boolean | null;
+  score: number | null;
+  summary: string;
+  problems: string[];
+  checks: { name: string; status: "ok" | "warn" | "fail"; detail: string }[];
+}
+
 export interface ItemDetail extends Item {
+  quality_report: QualityReport | Record<string, never>;
   files: string[];  // where the files are saved, relative to the project folder
   angle: string;
   captions: Partial<Record<Platform, string>>;
@@ -179,8 +189,10 @@ export const api = {
   item: (id: number) => request<ItemDetail>(`/api/items/${id}`),
   update: (id: number, body: { captions?: ItemDetail["captions"]; hashtags?: string; platforms?: Platform[] }) =>
     request<ItemDetail>(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  action: (id: number, action: "approve" | "reject" | "regenerate" | "publish" | "stop") =>
+  action: (id: number, action: "approve" | "reject" | "regenerate" | "publish" | "stop" | "check") =>
     request<ItemDetail>(`/api/items/${id}/${action}`, { method: "POST" }),
+  deleteItem: (id: number) => request<{ ok: boolean }>(`/api/items/${id}`, { method: "DELETE" }),
+  deleteRejected: () => request<{ deleted: number }>("/api/items/delete-rejected", { method: "POST" }),
   fromUrl: (url: string, kind: "video" | "post", notes: string) =>
     request<{ id: number }>("/api/from-url", { method: "POST", body: JSON.stringify({ url, kind, notes }) }),
   schedule: () => request<Schedule>("/api/schedule"),

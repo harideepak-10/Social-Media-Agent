@@ -229,6 +229,34 @@ def persist(path: Path | str | None) -> str:
         return str(path)
 
 
+def delete_media(ref: str | None) -> None:
+    """Remove a stored media file everywhere: the bucket (cloud) or media/ (local), plus a poster's HTML source."""
+    if not ref:
+        return
+    ref = str(ref)
+    try:
+        if is_url(ref):
+            marker = "/storage/v1/object/public/"
+            if marker in ref and remote_enabled():
+                key = ref.split(marker, 1)[1].split("/", 1)[1].split("?", 1)[0]
+                keys = [key]
+                if key.startswith("posters/") and not key.startswith("posters/source/"):
+                    keys.append(f"posters/source/{Path(key).stem}.html")
+                base, bucket, h = _sb()
+                _httpx.request("DELETE", f"{base}/storage/v1/object/{bucket}", headers=h,
+                               json={"prefixes": keys}, timeout=60)
+            cached = WORK_DIR / "downloads" / ref.split("/storage/v1/object/public/", 1)[-1].split("/", 1)[-1]
+            cached.unlink(missing_ok=True)
+        else:
+            p = Path(ref)
+            if p.is_file() and MEDIA_DIR.resolve() in p.resolve().parents:  # never delete outside media/
+                p.unlink()
+                if p.parent.resolve() == POSTERS_DIR.resolve():
+                    poster_source_path(p).unlink(missing_ok=True)
+    except Exception as e:  # deleting files is best effort – the item is removed anyway
+        _log.warning("could not delete %s: %s", ref, e)
+
+
 def is_url(ref: str | None) -> bool:
     return bool(ref) and str(ref).startswith(("http://", "https://"))
 

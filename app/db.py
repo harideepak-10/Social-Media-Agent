@@ -74,6 +74,7 @@ class ContentItem(Base):
     status: Mapped[str] = mapped_column(String(20), default="generating", index=True)
     results_json: Mapped[str] = mapped_column(Text, default="{}")    # {platform: {ok, id, error}}
     error: Mapped[str] = mapped_column(Text, default="")
+    quality_json: Mapped[str] = mapped_column(Text, default="")      # AI + technical quality check of the result
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -93,6 +94,17 @@ class ContentItem(Base):
     @results.setter
     def results(self, value: dict) -> None:
         self.results_json = json.dumps(value, ensure_ascii=False)
+
+    @property
+    def quality(self) -> dict:
+        try:
+            return json.loads(self.quality_json or "{}")
+        except ValueError:
+            return {}
+
+    @quality.setter
+    def quality(self, value: dict) -> None:
+        self.quality_json = json.dumps(value, ensure_ascii=False)
 
     @property
     def platform_list(self) -> list[str]:
@@ -169,7 +181,8 @@ def init_db() -> None:
         for name, ddl in (("source_url", "VARCHAR(500) DEFAULT ''"), ("notes", "TEXT DEFAULT ''"),
                           ("format", "VARCHAR(40) DEFAULT ''"), ("theme", "VARCHAR(40) DEFAULT ''"),
                           ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''"),
-                          ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0")):
+                          ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0"),
+                          ("quality_json", "TEXT DEFAULT ''")):
             if name not in cols:
                 conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}"))
     if is_cloud_db():
