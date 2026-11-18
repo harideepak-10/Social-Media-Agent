@@ -1,6 +1,7 @@
 """`python cli.py doctor` — checks everything the agent needs before going live."""
 from __future__ import annotations
 
+import os
 import importlib
 import sys
 import time
@@ -9,6 +10,10 @@ OK, WARN, FAIL = "✅", "⚠️ ", "❌"
 _LEVEL = {OK: "ok", WARN: "warn", FAIL: "fail"}
 _collected: list[dict] | None = None
 _quiet = False
+
+
+def _where() -> str:
+    return "Render → Environment" if os.environ.get("RENDER") else ".env"
 
 
 def _line(icon: str, name: str, detail: str = "") -> str:
@@ -79,7 +84,7 @@ def _run(full: bool) -> bool:
     # LLM
     key = env("ANTHROPIC_API_KEY")
     if env("LLM_PROVIDER", "anthropic") == "anthropic" and not key:
-        results.append(_line(FAIL, "Anthropic API key", "ANTHROPIC_API_KEY is empty in .env"))
+        results.append(_line(FAIL, "Anthropic API key", f"ANTHROPIC_API_KEY is empty – add it in {_where()}"))
     elif full:
         from . import llm
         for label, design in (("AI model", False), ("AI design model", True)):
@@ -121,7 +126,12 @@ def _run(full: bool) -> bool:
         from .db import engine, is_cloud_db
         with engine.connect() as conn:
             conn.execute(_t("SELECT 1"))
-        results.append(_line(OK, "Database", "cloud Postgres (DATABASE_URL)" if is_cloud_db() else "SQLite file agent.db (local)"))
+        if is_cloud_db():
+            results.append(_line(OK, "Database", "cloud Postgres (DATABASE_URL)"))
+        elif os.environ.get("RENDER"):
+            results.append(_line(FAIL, "Database", "local SQLite – wiped on every deploy/restart. Set DATABASE_URL in Render → Environment"))
+        else:
+            results.append(_line(OK, "Database", "SQLite file agent.db (local)"))
     except Exception as e:
         results.append(_line(FAIL, "Database", f"cannot connect: {str(e)[:140]}"))
     from . import storage
@@ -132,7 +142,10 @@ def _run(full: bool) -> bool:
         except Exception as e:
             results.append(_line(FAIL, "File storage", f"Supabase: {str(e)[:140]}"))
     else:
-        results.append(_line(OK, "File storage", "local media/ folder"))
+        if os.environ.get("RENDER"):
+            results.append(_line(FAIL, "File storage", "local disk – files wiped on every deploy. Set SUPABASE_URL + SUPABASE_SERVICE_KEY in Render → Environment"))
+        else:
+            results.append(_line(OK, "File storage", "local media/ folder"))
 
     # Brand assets
     logo = ASSETS_DIR / "logo.png"
@@ -150,7 +163,7 @@ def _run(full: bool) -> bool:
     results.append(_line(OK, "Daily times", f"prepare {settings().get('generate_time')} · publish {settings().get('publish_time')} "
                                             f"({settings().get('timezone')})"))
     if env("DASHBOARD_PASSWORD", "change-me") == "change-me":
-        results.append(_line(WARN, "Dashboard password", "still 'change-me' — set DASHBOARD_PASSWORD in .env"))
+        results.append(_line(WARN, "Dashboard password", f"still 'change-me' — set DASHBOARD_PASSWORD in {_where()}"))
     from . import publishers
     st = publishers.status()
     results.append(_line(OK, "Publishing", ", ".join(f"{k}: {'live' if v else 'dry-run'}" for k, v in st.items())))
