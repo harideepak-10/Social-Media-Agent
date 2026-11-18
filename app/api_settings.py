@@ -246,6 +246,7 @@ class SettingsIn(BaseModel):
     post: dict | None = None
 
 
+COMPANY_READONLY = {"logo_path"}
 COMPANY_KEYS = {"name", "tagline", "website", "industry", "audience", "tone", "call_to_action", "brand_colors"}
 VIDEO_KEYS = {"formats", "max_seconds", "fps", "voiceover", "voice", "background_music", "themes"}
 POST_KEYS = {"self_review", "formats", "themes"}
@@ -255,6 +256,8 @@ POST_KEYS = {"self_review", "formats", "themes"}
 def put_settings(body: SettingsIn, _: str = User):
     patch: dict = {}
     if body.company is not None:
+        # logo_path is managed by the logo upload; the UI sends the whole company block back
+        body.company = {k: v for k, v in body.company.items() if k not in COMPANY_READONLY}
         bad = set(body.company) - COMPANY_KEYS
         if bad:
             raise HTTPException(400, f"unknown company fields: {sorted(bad)}")

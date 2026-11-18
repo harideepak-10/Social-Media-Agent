@@ -136,7 +136,9 @@ async function fetchWithWake(path: string, init: RequestInit): Promise<Response>
   for (let attempt = 0; ; attempt++) {
     try {
       const res = await fetch(path, init);
-      if (WAKE_CODES.has(res.status) && attempt < (safe ? 8 : 4)) { setWaking(true); await sleep(8000); continue; }
+      // A JSON error body means our own app answered (a real error), not the host waking up.
+      const fromApp = (res.headers.get("content-type") || "").includes("application/json");
+      if (WAKE_CODES.has(res.status) && !fromApp && attempt < (safe ? 8 : 4)) { setWaking(true); await sleep(8000); continue; }
       setWaking(false);
       return res;
     } catch (e) {

@@ -25,7 +25,7 @@ export default function Create() {
   const [touched, setTouched] = useState(false);
 
   const cleaned = url.trim();
-  const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/\S*)?$/i.test(cleaned) || /^https?:\/\/localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
+  const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
 
   const recent = useQuery({ queryKey: ["items", "recent-url"], queryFn: () => api.items({ q: "", limit: 60 }), refetchInterval: 10000 });
   const fromLinks = (recent.data?.items ?? []).filter((i) => i.source_url).slice(0, 6);

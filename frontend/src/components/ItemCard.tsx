@@ -67,7 +67,7 @@ export default function ItemCard({ item, onAction, busy }: {
                   className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
                   <Check className="size-3.5" /> Approve
                 </button>
-                <button disabled={busy} onClick={() => onAction(item.id, "reject")}
+                <button disabled={busy} onClick={() => onAction(item.id, "reject")} title="Reject" aria-label="Reject"
                   className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-stone-500 ring-1 ring-stone-200 hover:bg-stone-50 hover:text-red-600 disabled:opacity-50">
                   <X className="size-3.5" />
                 </button>

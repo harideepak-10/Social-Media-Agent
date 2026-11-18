@@ -60,7 +60,7 @@ def suggest(_: str = User):
     try:
         return {"added": occasions.suggest_with_ai(90)}
     except Exception as e:
-        raise HTTPException(502, f"AI suggestion failed: {e}")
+        raise HTTPException(400, f"AI suggestion failed: {e}")
 
 
 class SuggestionIn(BaseModel):

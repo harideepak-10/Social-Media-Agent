@@ -216,7 +216,7 @@ function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () 
       </div>
       {!past && (
         <button onClick={onAdd} title="Add an event on this day"
-          className="absolute bottom-1.5 right-1.5 hidden rounded-md bg-white p-1 text-stone-400 shadow ring-1 ring-stone-200 hover:text-violet-700 group-hover:block">
+          className="absolute bottom-1.5 right-1.5 block rounded-md md:hidden md:group-hover:block md:group-focus-within:block bg-white p-1 text-stone-400 shadow ring-1 ring-stone-200 hover:text-violet-700 group-hover:block">
           <CalendarPlus className="size-3.5" />
         </button>
       )}
