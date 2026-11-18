@@ -142,6 +142,23 @@ def _sb() -> tuple[str, str, dict]:
     return base, env("SUPABASE_BUCKET", "media"), headers
 
 
+def key_problem() -> str | None:
+    """Spot a public (anon/publishable) key pasted where the secret one is needed."""
+    key = env("SUPABASE_SERVICE_KEY").strip().strip('"')
+    if key.startswith("sb_publishable_"):
+        return "this is the publishable key – use the secret key (sb_secret_…) instead"
+    if key.startswith("eyJ"):
+        import base64, json
+        try:
+            part = key.split(".")[1]
+            role = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))).get("role")
+        except Exception:
+            role = None
+        if role and role != "service_role":
+            return f"this is the '{role}' key – use the service_role key instead"
+    return None
+
+
 def _ensure_bucket() -> None:
     global _bucket_ready
     if _bucket_ready:

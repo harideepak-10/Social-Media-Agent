@@ -140,7 +140,8 @@ def _run(full: bool) -> bool:
             storage._ensure_bucket()
             results.append(_line(OK, "File storage", f"Supabase bucket '{env('SUPABASE_BUCKET', 'media')}' (public)"))
         except Exception as e:
-            results.append(_line(FAIL, "File storage", f"Supabase: {str(e)[:140]}"))
+            hint = storage.key_problem()
+            results.append(_line(FAIL, "File storage", f"SUPABASE_SERVICE_KEY: {hint}" if hint else f"Supabase: {str(e)[:140]}"))
     else:
         if os.environ.get("RENDER"):
             results.append(_line(FAIL, "File storage", "local disk – files wiped on every deploy. Set SUPABASE_URL + SUPABASE_SERVICE_KEY in Render → Environment"))

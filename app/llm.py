@@ -60,10 +60,12 @@ def _anthropic(prompt, system, max_tokens, temperature, images=None, design=Fals
     if design:
         model = env("ANTHROPIC_DESIGN_MODEL", model)
     content = [_image_block(p) for p in (images or [])] + [{"type": "text", "text": prompt}]
+    # anthropic SDK 2.x removed `temperature`; only send it to older SDKs
+    extra = {"temperature": temperature} if anthropic.__version__.split(".")[0] in ("0", "1") else {}
     msg = client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        temperature=temperature,
+        **extra,
         system=system or "You are a helpful assistant.",
         messages=[{"role": "user", "content": content}],
     )
