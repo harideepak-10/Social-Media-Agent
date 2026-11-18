@@ -9,10 +9,14 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+# "KEY=      # comment" with no value is read as the comment text – treat it as empty.
+for _k, _v in dotenv_values(BASE_DIR / ".env").items():
+    if _v and _v.lstrip().startswith("#") and os.environ.get(_k) == _v:
+        os.environ[_k] = ""
 
 # DATA_DIR: where everything that changes lives (database, media, settings edits, logo, music, cache).
 # Default = the project folder. On a server, point it at a persistent disk, e.g. DATA_DIR=/var/data
