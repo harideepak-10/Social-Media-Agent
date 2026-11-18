@@ -131,8 +131,11 @@ def remote_enabled() -> bool:
 
 
 def _sb() -> tuple[str, str, dict]:
-    base = env("SUPABASE_URL").rstrip("/")
-    key = env("SUPABASE_SERVICE_KEY")
+    # Accept the URL however it was copied (e.g. ".../rest/v1/" from the Data API page): keep only https://<ref>.supabase.co
+    from urllib.parse import urlsplit
+    u = urlsplit(env("SUPABASE_URL").strip().strip('"'))
+    base = f"{u.scheme or 'https'}://{u.netloc or u.path.split('/')[0]}"
+    key = env("SUPABASE_SERVICE_KEY").strip().strip('"')
     headers = {"apikey": key}
     if key.startswith("eyJ"):  # classic service_role JWT; new sb_secret_… keys go in the apikey header only
         headers["Authorization"] = f"Bearer {key}"
