@@ -199,7 +199,7 @@ export default function ItemDetail() {
           </div>
         </Card>
       ) : (
-        <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           {/* preview */}
           <div className="space-y-6">
             <Preview item={item} />
@@ -282,7 +282,7 @@ export default function ItemDetail() {
             </Card>
 
             {editable && (
-              <div className={clsx(dirty && "sticky bottom-4", "flex items-center justify-between gap-3 rounded-2xl px-5 py-3 shadow-lg ring-1 transition",
+              <div className={clsx(dirty && "sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-4", "flex items-center justify-between gap-3 rounded-2xl px-5 py-3 shadow-lg ring-1 transition",
                 dirty ? "bg-ink-900 text-white ring-ink-900" : "bg-white text-stone-400 ring-stone-200")}>
                 <span className="text-sm">{dirty ? "You have unsaved changes" : "All changes saved"}</span>
                 <div className="flex gap-2">
@@ -364,7 +364,7 @@ function SavedAs({ label, file }: { label: string; file?: string }) {
   return (
     <span className="min-w-0 text-stone-500">
       {label}
-      {file && <> · <span className="font-mono text-xs text-stone-600" title="Saved in your project folder">{file}</span></>}
+      {file && <> · <span className="break-all font-mono text-xs text-stone-600" title="Saved in your project folder">{file}</span></>}
     </span>
   );
 }
@@ -405,7 +405,7 @@ function QualityCard({ item, checking, onCheck }: { item: TItem; checking: boole
               ))}
             </ul>
           )}
-          <div className="mt-4 grid gap-1.5 sm:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {q.checks.map((c) => (
               <div key={c.name} className="flex items-center gap-2 text-xs">
                 {c.status === "ok" ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600" /> :

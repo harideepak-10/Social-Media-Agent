@@ -250,6 +250,6 @@ export const api = {
   testConnection: (platform: "meta" | "linkedin") =>
     request<{ ok: boolean; results?: Record<string, string>; error?: string }>(`/api/connections/${platform}/test`, { method: "POST" }),
   disconnect: (platform: "meta" | "linkedin") => request<Connections>(`/api/connections/${platform}`, { method: "DELETE" }),
-  generate: (kind?: "video" | "post") =>
-    request<{ ok: boolean; date: string }>("/api/generate", { method: "POST", body: JSON.stringify({ kind }) }),
+  generate: (kind?: "video" | "post", notes = "") =>
+    request<{ ok: boolean; date: string }>("/api/generate", { method: "POST", body: JSON.stringify({ kind, notes }) }),
 };

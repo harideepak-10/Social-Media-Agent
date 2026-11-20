@@ -283,7 +283,7 @@ def item_action(item_id: int, action: str, _: str = User):
         if url:
             _bg(pipeline.generate_from_url, url, kind, notes, None, item_id)
         else:
-            _bg(pipeline.generate_for, day, kind, True, origin="regenerate")
+            _bg(pipeline.generate_for, day, kind, True, origin="regenerate", notes=notes)
     elif action == "publish":
         _bg(pipeline.publish_item, item_id)
     return result
@@ -308,6 +308,7 @@ def from_url(body: FromUrlIn, _: str = User):
 class GenerateIn(BaseModel):
     date: str | None = None
     kind: str | None = None
+    notes: str = Field("", max_length=1000)   # optional instructions ("prompt") from Generate now
 
 
 @router.post("/generate")
@@ -316,5 +317,5 @@ def generate(body: GenerateIn, _: str = User):
     kind = body.kind if body.kind in ("video", "post") else None
     if not kind and planner.kind_for(day) not in ("video", "post"):
         raise HTTPException(400, f"Nothing is scheduled on {day:%A} – pick video or post")
-    _bg(pipeline.generate_for, day, kind, True, origin="manual")
+    _bg(pipeline.generate_for, day, kind, True, origin="manual", notes=body.notes.strip())
     return {"ok": True, "date": day.isoformat()}

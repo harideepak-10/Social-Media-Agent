@@ -71,18 +71,37 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* mobile top bar */}
+      {/* mobile: slim top bar + bottom tab bar */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-4 bg-ink-900 px-4 py-3 md:hidden">
-          <span className="font-bold text-white">{meta?.company.name ?? "Krypsos"}</span>
-          <NavLink to="/" end className={({ isActive }) => clsx("text-sm", isActive ? "text-white" : "text-white/60")}>Queue</NavLink>
-          <NavLink to="/create" className={({ isActive }) => clsx("text-sm", isActive ? "text-white" : "text-white/60")}>Create</NavLink>
-          <NavLink to="/schedule" className={({ isActive }) => clsx("text-sm", isActive ? "text-white" : "text-white/60")}>Schedule</NavLink>
-          <NavLink to="/settings" className={({ isActive }) => clsx("text-sm", isActive ? "text-white" : "text-white/60")}>Settings</NavLink>
+        <div className="flex items-center gap-3 bg-ink-900 px-4 py-2.5 md:hidden">
+          <div className="grid size-7 place-items-center rounded-md bg-brand-600 text-white">
+            <svg viewBox="0 0 32 32" className="size-4"><path d="M16 3l11 13-11 13L5 16z" fill="none" stroke="currentColor" strokeWidth="3" /></svg>
+          </div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-sm font-bold text-white">{meta?.company.name ?? "Krypsos"}</div>
+            <div className="truncate text-[11px] text-white/50">
+              {running > 0 ? <span className="text-indigo-300">● {running} generating</span> : live ? "Publishing live" : "Test mode"}
+              {pc?.mode === "pc" && <> · Video PC {pc.online ? "online" : "offline"}</>}
+            </div>
+          </div>
+          <button onClick={() => { auth.clear(); window.dispatchEvent(new Event("dma:logout")); }} aria-label="Log out"
+            className="grid size-9 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white"><LogOut className="size-4" /></button>
         </div>
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        <main className="min-w-0 flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
           <Outlet />
         </main>
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+          {([["/", "Queue", LayoutGrid], ["/create", "Create", Sparkles], ["/schedule", "Schedule", CalendarDays], ["/settings", "Settings", Settings2]] as const).map(([to, label, Icon]) => (
+            <NavLink key={to} to={to} end={to === "/"}
+              className={({ isActive }) => clsx("relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-semibold", isActive ? "text-brand-700" : "text-stone-500")}>
+              <Icon className="size-5" />
+              {label}
+              {to === "/" && review > 0 && (
+                <span className="absolute left-1/2 top-1 ml-2 min-w-4 rounded-full bg-brand-600 px-1 text-center text-[10px] font-bold leading-4 text-white">{review}</span>
+              )}
+            </NavLink>
+          ))}
+        </nav>
       </div>
     </div>
   );

@@ -81,23 +81,23 @@ function MetaCard({ c }: { c: TConn }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center gap-4 border-b border-stone-100 p-6">
+      <div className="flex flex-wrap items-center gap-3 border-b border-stone-100 p-4 sm:gap-4 sm:p-6">
         <div className="flex -space-x-2"><BrandIcon kind="facebook" /><BrandIcon kind="instagram" /></div>
         <div className="min-w-0 flex-1">
           <h2 className="font-bold">Facebook Page + Instagram</h2>
           <p className="text-xs text-stone-500">One Meta login connects your Facebook Page and the Instagram Business account linked to it.</p>
         </div>
-        <ConnBadge on={m.connected} source={m.source} />
+        <div className="w-full sm:w-auto"><ConnBadge on={m.connected} source={m.source} /></div>
       </div>
 
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         {m.pending_choices.length > 0 && !m.connected ? (
           <ChoosePage title="Which Facebook Page should the agent post to?" items={m.pending_choices.map((p) => ({
             id: p.id, name: p.name, picture: p.picture, sub: p.ig_username ? `Instagram: @${p.ig_username}` : "No Instagram Business account linked",
           }))} busy={select.isPending} onPick={(id) => select.mutate(id)} />
         ) : m.connected ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Account icon={<BrandIcon kind="facebook" size={36} />} label="Facebook Page" value={m.page_name || m.page_id} sub={`ID ${m.page_id}`} picture={m.picture} />
               <Account icon={<BrandIcon kind="instagram" size={36} />} label="Instagram" value={m.ig_username ? `@${m.ig_username}` : m.ig_user_id || "Not linked"}
                 warn={!m.ig_user_id ? "Link an Instagram Business/Creator account to this Page in Instagram settings, then reconnect." : undefined} />
@@ -141,21 +141,21 @@ function LinkedInCard({ c }: { c: TConn }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center gap-4 border-b border-stone-100 p-6">
+      <div className="flex flex-wrap items-center gap-3 border-b border-stone-100 p-4 sm:gap-4 sm:p-6">
         <BrandIcon kind="linkedin" />
         <div className="min-w-0 flex-1">
           <h2 className="font-bold">LinkedIn Company Page</h2>
           <p className="text-xs text-stone-500">Posts go out as your company Page. You must be an admin of the Page.</p>
         </div>
-        <ConnBadge on={l.connected} source={l.source} warn={l.connected && expiring} />
+        <div className="w-full sm:w-auto"><ConnBadge on={l.connected} source={l.source} warn={l.connected && expiring} /></div>
       </div>
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         {l.pending_choices.length > 0 && !l.connected ? (
           <ChoosePage title="Which LinkedIn Page should the agent post to?" items={l.pending_choices.map((o) => ({ id: o.id, name: o.name, sub: `Organization ${o.id}` }))}
             busy={select.isPending} onPick={(id) => select.mutate(id)} />
         ) : l.connected ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Account icon={<BrandIcon kind="linkedin" size={36} />} label="Company Page" value={l.org_name || l.org_id} sub={`Organization ${l.org_id}`} />
               <Account icon={<span className={clsx("grid size-9 place-items-center rounded-xl", expiring ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500")}><KeyRound className="size-4" /></span>}
                 label="Access" value={l.expires_in_days === null ? "No expiry info" : `Expires in ${l.expires_in_days} days`}
@@ -226,9 +226,9 @@ function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect,
 
 function Account({ icon, label, value, sub, picture, warn }: { icon: ReactNode; label: string; value: string; sub?: string; picture?: string; warn?: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200/70">
-      {picture ? <img src={picture} alt="" className="size-9 rounded-xl object-cover" /> : icon}
-      <div className="min-w-0">
+    <div className="flex min-w-0 items-start gap-3 rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200/70">
+      <span className="shrink-0">{picture ? <img src={picture} alt="" className="size-9 rounded-xl object-cover" /> : icon}</span>
+      <div className="min-w-0 flex-1">
         <div className="text-[11px] font-bold uppercase tracking-wider text-stone-400">{label}</div>
         <div className="truncate font-semibold">{value}</div>
         {sub && <div className="text-xs text-stone-500">{sub}</div>}
@@ -306,7 +306,7 @@ function AppModal({ open, onClose, platform, redirect, current, title, idLabel, 
           <button onClick={() => { navigator.clipboard?.writeText(redirect); toast("ok", "Copied"); }} className="rounded p-1 text-stone-500 hover:bg-white hover:text-stone-900"><Copy className="size-4" /></button>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label={idLabel}><input value={id} onChange={(e) => setId(e.target.value)} className={inputCls} autoComplete="off" /></Field>
         <Field label={secretLabel} hint={current ? "Enter it again to change" : undefined}>
           <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} className={inputCls} autoComplete="new-password" />

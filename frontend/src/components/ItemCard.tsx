@@ -31,10 +31,10 @@ export default function ItemCard({ item, onAction, busy }: {
               </span>
             </div>
           )}
-          <div className="absolute left-3 top-3 flex gap-1.5">
+          <div className="absolute left-2 top-2 flex gap-1.5 sm:left-3 sm:top-3">
             <StatusBadge status={item.status} className="bg-white/95 shadow-sm backdrop-blur" />
           </div>
-          <div className="absolute bottom-3 left-3 flex gap-1.5">
+          <div className="absolute bottom-2 left-2 flex gap-1.5 sm:bottom-3 sm:left-3">
             {item.quality && item.quality.passed !== null && !generating && (
               <span title={item.quality.passed ? "AI quality check passed" : `AI quality check: ${item.quality.issues} thing(s) to look at`}
                 className={clsx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold shadow-sm",
@@ -44,20 +44,21 @@ export default function ItemCard({ item, onAction, busy }: {
               </span>
             )}
           </div>
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-ink-900/80 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
-            {video ? <Film className="size-3" /> : <ImageIcon className="size-3" />} {video ? "Video" : "Post"}
+          <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-ink-900/80 px-1.5 py-1 text-[11px] font-semibold text-white backdrop-blur sm:right-3 sm:top-3 sm:px-2 sm:py-0.5"
+            aria-label={video ? "Video" : "Post"}>
+            {video ? <Film className="size-3" /> : <ImageIcon className="size-3" />} <span className="hidden sm:inline">{video ? "Video" : "Post"}</span>
           </span>
         </div>
       </Link>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <div className="flex items-center gap-2 text-xs text-stone-500">
-          <span className="font-medium text-stone-700">{fmtDate(item.date)}</span>
+      <div className="flex flex-1 flex-col gap-1.5 p-3 sm:gap-2 sm:p-4">
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-stone-500 sm:text-xs">
+          <span className="shrink-0 font-medium text-stone-700">{fmtDate(item.date)}</span>
           {item.source_url ? (
             <span className="inline-flex min-w-0 items-center gap-1 truncate"><Globe className="size-3 shrink-0" />{new URL(item.source_url).hostname.replace("www.", "")}</span>
           ) : item.product ? <span className="truncate">· {item.product}</span> : null}
         </div>
-        <Link to={`/items/${item.id}`} className="line-clamp-2 font-semibold leading-snug text-stone-900 hover:text-brand-700">
+        <Link to={`/items/${item.id}`} className="line-clamp-2 text-sm font-semibold leading-snug text-stone-900 hover:text-brand-700 sm:text-base">
           {displayTitle(item)}
         </Link>
 

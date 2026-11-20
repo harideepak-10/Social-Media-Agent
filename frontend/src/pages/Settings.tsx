@@ -30,11 +30,11 @@ export default function Settings() {
       <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Settings</h1>
       <p className="mt-1 text-sm text-stone-500">Everything the agent needs to know about your brand, products and style. Saved to <code className="rounded bg-stone-100 px-1">config/settings.yaml</code>.</p>
 
-      <div className="mt-6 flex flex-wrap gap-1 rounded-xl bg-white p-1 ring-1 ring-stone-200/80 sm:inline-flex">
+      <div className="-mx-5 mt-6 flex gap-1.5 overflow-x-auto px-5 [scrollbar-width:none] sm:mx-0 sm:inline-flex sm:flex-wrap sm:gap-1 sm:rounded-xl sm:bg-white sm:p-1 sm:ring-1 sm:ring-stone-200/80">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setParams({ tab: id })}
-            className={clsx("flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition",
-              tab === id ? "bg-ink-900 text-white" : "text-stone-600 hover:bg-stone-100")}>
+            className={clsx("flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition",
+              tab === id ? "bg-ink-900 text-white" : "bg-white text-stone-600 ring-1 ring-stone-200/80 hover:bg-stone-100 sm:bg-transparent sm:ring-0")}>
             <Icon className="size-4" /> {label}
           </button>
         ))}
@@ -72,9 +72,9 @@ function CompanyTab({ s }: { s: TSettings }) {
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <Card className="space-y-5 p-6">
-          <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <Card className="space-y-5 p-4 sm:p-6">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <Field label="Company name"><input value={c.name ?? ""} onChange={(e) => set("name", e.target.value)} className={inputCls} /></Field>
             <Field label="Tagline"><input value={c.tagline ?? ""} onChange={(e) => set("tagline", e.target.value)} className={inputCls} /></Field>
           </div>
@@ -85,7 +85,7 @@ function CompanyTab({ s }: { s: TSettings }) {
           <Field label="Who you sell to" hint="The AI writes for these people.">
             <textarea rows={2} value={c.audience ?? ""} onChange={(e) => set("audience", e.target.value)} className={clsx(inputCls, "resize-none")} />
           </Field>
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <Field label="Tone of voice"><input value={c.tone ?? ""} onChange={(e) => set("tone", e.target.value)} className={inputCls} /></Field>
             <Field label="Call to action"><input value={c.call_to_action ?? ""} onChange={(e) => set("call_to_action", e.target.value)} className={inputCls} /></Field>
           </div>
@@ -93,7 +93,7 @@ function CompanyTab({ s }: { s: TSettings }) {
 
         <div className="space-y-6">
           <LogoCard />
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <h2 className="font-bold">Brand colours</h2>
             <p className="mt-1 text-xs text-stone-500">Used by the simple fallback designs. The premium designs follow the post/video looks.</p>
             <div className="mt-4 grid grid-cols-2 gap-4">
@@ -124,7 +124,7 @@ function LogoCard() {
     onError: (e: Error) => toast("error", e.message),
   });
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between">
         <h2 className="font-bold">Logo</h2>
         <Button icon={<Upload className="size-4" />} loading={up.isPending} onClick={() => ref.current?.click()}>Upload PNG</Button>
@@ -156,7 +156,7 @@ function ProductsTab({ s }: { s: TSettings }) {
 
   return (
     <>
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-bold">Products & services</h2>
@@ -166,22 +166,25 @@ function ProductsTab({ s }: { s: TSettings }) {
         </div>
         <ul className="mt-5 space-y-3">
           {list.map((p, i) => (
-            <li key={i} className="rounded-xl bg-stone-50 p-4 ring-1 ring-stone-200/70">
-              <div className="flex gap-3">
-                <span className="mt-2 grid size-7 shrink-0 place-items-center rounded-lg bg-ink-900 text-xs font-bold text-white">{i + 1}</span>
-                <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-                  <input value={p.name} onChange={(e) => upd(i, "name", e.target.value)} placeholder="Product name" className={clsx(inputCls, "bg-white font-semibold")} />
-                  <div className="flex items-center gap-2">
-                    <input value={p.url} onChange={(e) => upd(i, "url", e.target.value)} placeholder="https://… product page" className={clsx(inputCls, "bg-white")} />
-                    {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="rounded-lg p-2 text-stone-400 hover:bg-white hover:text-stone-800"><ExternalLink className="size-4" /></a>}
+            <li key={i} className="rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200/70 sm:p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+                <div className="flex items-center gap-1 sm:contents">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-ink-900 text-xs font-bold text-white sm:order-1 sm:mt-2">{i + 1}</span>
+                  <span className="flex-1 sm:hidden" />
+                  <div className="flex gap-1 sm:order-3 sm:flex-col">
+                    <button disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up" className="rounded p-1.5 text-stone-400 hover:bg-white hover:text-stone-800 disabled:opacity-30"><ArrowUp className="size-4" /></button>
+                    <button disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="Move down" className="rounded p-1.5 text-stone-400 hover:bg-white hover:text-stone-800 disabled:opacity-30"><ArrowDown className="size-4" /></button>
+                    <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} aria-label="Delete product" className="rounded p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="size-4" /></button>
                   </div>
-                  <textarea rows={2} value={p.description} onChange={(e) => upd(i, "description", e.target.value)}
-                    placeholder="What it does – the AI uses this to explain it correctly" className={clsx(inputCls, "resize-none bg-white md:col-span-2")} />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <button disabled={i === 0} onClick={() => move(i, -1)} className="rounded p-1.5 text-stone-400 hover:bg-white hover:text-stone-800 disabled:opacity-30"><ArrowUp className="size-4" /></button>
-                  <button disabled={i === list.length - 1} onClick={() => move(i, 1)} className="rounded p-1.5 text-stone-400 hover:bg-white hover:text-stone-800 disabled:opacity-30"><ArrowDown className="size-4" /></button>
-                  <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="rounded p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="size-4" /></button>
+                <div className="grid grid-cols-1 min-w-0 flex-1 gap-2 sm:order-2 sm:gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                  <input value={p.name} onChange={(e) => upd(i, "name", e.target.value)} placeholder="Product name" className={clsx(inputCls, "bg-white font-semibold")} />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <input value={p.url} onChange={(e) => upd(i, "url", e.target.value)} placeholder="https://… product page" className={clsx(inputCls, "min-w-0 bg-white")} />
+                    {p.url && <a href={p.url} target="_blank" rel="noreferrer" aria-label="Open page" className="shrink-0 rounded-lg p-2 text-stone-400 hover:bg-white hover:text-stone-800"><ExternalLink className="size-4" /></a>}
+                  </div>
+                  <textarea rows={3} value={p.description} onChange={(e) => upd(i, "description", e.target.value)}
+                    placeholder="What it does – the AI uses this to explain it correctly" className={clsx(inputCls, "resize-none bg-white md:col-span-2")} />
                 </div>
               </div>
             </li>
@@ -216,8 +219,8 @@ function StyleTab({ s }: { s: TSettings }) {
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="space-y-6 p-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="space-y-6 p-4 sm:p-6">
           <h2 className="font-bold">Videos</h2>
           <div>
             <div className="text-sm font-semibold">Sizes</div>
@@ -264,7 +267,7 @@ function StyleTab({ s }: { s: TSettings }) {
           </div>
         </Card>
 
-        <Card className="space-y-6 p-6">
+        <Card className="space-y-6 p-4 sm:p-6">
           <h2 className="font-bold">Posts</h2>
           <Switch checked={post.self_review ?? true} onChange={(v) => setPost({ ...post, self_review: v })}
             label="AI art-director review" sub="The AI looks at every rendered post and fixes problems before you see it (1–2 extra AI calls)." />
@@ -393,8 +396,8 @@ function StatusTab({ s }: { s: TSettings }) {
   const e = s.engine;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-      <Card className="p-6">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+      <Card className="p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-bold">Health check</h2>
@@ -424,7 +427,7 @@ function StatusTab({ s }: { s: TSettings }) {
       </Card>
 
       <div className="space-y-6">
-        <Card className="p-6">
+        <Card className="p-4 sm:p-6">
           <h2 className="font-bold">Publishing</h2>
           <ul className="mt-4 space-y-3">
             {PLATFORMS.map((p) => {
@@ -443,7 +446,7 @@ function StatusTab({ s }: { s: TSettings }) {
           <a href="/settings?tab=connections" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline"><Link2 className="size-4" /> Manage connections</a>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-4 sm:p-6">
           <h2 className="font-bold">AI engine</h2>
           <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 text-sm">
             <dt className="text-stone-500">Provider</dt><dd className="font-medium capitalize">{e.llm_provider} {e.anthropic_key ? "" : <span className="text-red-600">(no key)</span>}</dd>
@@ -456,7 +459,7 @@ function StatusTab({ s }: { s: TSettings }) {
         </Card>
 
         {health.data?.next_runs && Object.keys(health.data.next_runs).length > 0 && (
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <h2 className="font-bold">Scheduler</h2>
             <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
               {Object.entries(health.data.next_runs).map(([k, v]) => (

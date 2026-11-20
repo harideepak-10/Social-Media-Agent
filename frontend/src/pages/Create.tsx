@@ -46,8 +46,8 @@ export default function Create() {
       <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Create from any website</h1>
       <p className="mt-1 text-sm text-stone-500">Paste a link. The agent reads the site, takes its brand colours and best screens, and makes a video or post for it.</p>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <Card className="p-6 md:p-8">
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <Card className="p-4 sm:p-6 md:p-8">
           <form onSubmit={(e) => { e.preventDefault(); setTouched(true); if (valid) create.mutate(); }} className="space-y-7">
             <div>
               <label className="text-sm font-bold">Website link</label>
@@ -64,7 +64,7 @@ export default function Create() {
 
             <div>
               <label className="text-sm font-bold">What should it make?</label>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {([
                   ["video", Film, "Promo video", "16:9 + 9:16 with voice-over and music · about 5 min"],
                   ["post", ImageIcon, "Designed post", "1080×1350 image with captions · about 1 min"],
@@ -102,7 +102,7 @@ export default function Create() {
         </Card>
 
         <div className="space-y-6">
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <h2 className="font-bold">How it works</h2>
             <ol className="mt-4 space-y-4">
               {[
@@ -122,7 +122,7 @@ export default function Create() {
             </ol>
           </Card>
 
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <h2 className="font-bold">Recent from links</h2>
             {fromLinks.length === 0 ? (
               <p className="mt-2 text-sm text-stone-400">Nothing yet – your first one will show up here.</p>

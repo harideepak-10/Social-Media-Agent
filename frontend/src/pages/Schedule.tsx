@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
@@ -58,8 +58,8 @@ export default function Schedule() {
 
       {!draft ? <div className="shimmer mt-8 h-64 rounded-2xl bg-stone-200/60" /> : (
         <>
-          <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <Card className="p-6">
+          <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+            <Card className="p-4 sm:p-6">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="font-bold">Weekly plan</h2>
                 <span className="text-xs text-stone-500">
@@ -87,7 +87,7 @@ export default function Schedule() {
                 ))}
               </div>
 
-              <div className="mt-6 grid gap-5 sm:grid-cols-2">
+              <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <Field label="Prepare content at" hint="The day before. It waits in the queue for your approval.">
                   <div className="flex items-center gap-2"><Clock className="size-4 text-stone-400" />
                     <input type="time" value={draft.generate_time} onChange={(e) => set("generate_time", e.target.value)} className={inputCls} /></div>
@@ -102,7 +102,7 @@ export default function Schedule() {
               )}
             </Card>
 
-            <Card className="p-6">
+            <Card className="p-4 sm:p-6">
               <h2 className="font-bold">Post days: what to talk about</h2>
               <p className="mt-1 text-xs text-stone-500">The agent uses the first source that has something that day. Videos always feature a product.</p>
               <ol className="mt-4 space-y-2">
@@ -151,9 +151,11 @@ function MonthCalendar() {
   const { data } = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendar(month) });
   const [eventFor, setEventFor] = useState<string | null>(null);
   const today = todayIso();
+  const [picked, setPicked] = useState<string>(today);
+  const pickedDay = data?.days.find((d) => d.date === picked) ?? null;
 
   return (
-    <Card className="mt-6 p-6">
+    <Card className="mt-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-bold">{cursor.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</h2>
         <div className="flex items-center gap-1">
@@ -165,12 +167,19 @@ function MonthCalendar() {
       </div>
       <div className="mt-4 grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-stone-200 ring-1 ring-stone-200">
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-          <div key={d} className="bg-stone-50 px-2 py-2 text-center text-xs font-bold uppercase tracking-wider text-stone-500">{d}</div>
+          <div key={d} className="bg-stone-50 px-1 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-stone-500 md:px-2 md:text-xs">
+            <span className="md:hidden">{d[0]}</span><span className="hidden md:inline">{d}</span>
+          </div>
         ))}
         {(data?.days ?? Array.from({ length: 35 }, () => null)).map((day, i) =>
-          day ? <DayCell key={day.date} day={day} today={today} onAdd={() => setEventFor(day.date)} />
-            : <div key={i} className="shimmer h-32 bg-white" />)}
+          day ? (
+            <Fragment key={day.date}>
+              <DayCell day={day} today={today} onAdd={() => setEventFor(day.date)} />
+              <MiniDay day={day} today={today} selected={day.date === picked} onPick={() => setPicked(day.date)} />
+            </Fragment>
+          ) : <div key={i} className="shimmer h-14 bg-white md:h-32" />)}
       </div>
+      {pickedDay && <DayDetails day={pickedDay} today={today} onAdd={() => setEventFor(pickedDay.date)} />}
       <EventModal open={!!eventFor} initial={eventFor ? { date: eventFor, title: "", details: "", remind_days_before: 0 } : null}
         onClose={() => setEventFor(null)} />
     </Card>
@@ -182,7 +191,7 @@ function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () 
   const past = day.date < today;
   const n = Number(day.date.slice(8));
   return (
-    <div className={clsx("group relative flex min-h-32 flex-col gap-1 bg-white p-2", !day.in_month && "bg-stone-50/80", past && "opacity-60")}>
+    <div className={clsx("group relative hidden min-h-32 flex-col gap-1 bg-white p-2 md:flex", !day.in_month && "bg-stone-50/80", past && "opacity-60")}>
       <div className="flex items-center justify-between">
         <span className={clsx("grid size-6 place-items-center rounded-full text-xs font-bold",
           isToday ? "bg-brand-600 text-white" : day.in_month ? "text-stone-800" : "text-stone-400")}>{n}</span>
@@ -224,6 +233,69 @@ function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () 
   );
 }
 
+/** Phone calendar cell: day number + coloured dots; tap to see the day below the calendar. */
+function MiniDay({ day, today, selected, onPick }: { day: CalDay; today: string; selected: boolean; onPick: () => void }) {
+  const isToday = day.date === today;
+  const occ = day.occasions.filter((o) => o.status !== "skipped");
+  return (
+    <button onClick={onPick} aria-label={day.date}
+      className={clsx("flex h-14 flex-col items-center gap-1 bg-white pt-1.5 md:hidden", !day.in_month && "bg-stone-50/80 text-stone-400",
+        day.date < today && "opacity-60", selected && "bg-stone-100")}>
+      <span className={clsx("grid size-6 place-items-center rounded-full text-xs font-bold",
+        isToday ? "bg-brand-600 text-white" : selected ? "bg-ink-900 text-white" : "")}>{Number(day.date.slice(8))}</span>
+      <span className="flex h-1.5 items-center gap-0.5">
+        {day.kind !== "none" && <span className={clsx("h-1 w-2 rounded-full", day.kind === "video" ? "bg-pink-500" : "bg-sky-500")} />}
+        {occ.length > 0 && <span className={clsx("size-1.5 rounded-full", occ.some((o) => o.status === "approved") ? "bg-emerald-400" : "bg-amber-400")} />}
+        {day.events.length > 0 && <span className="size-1.5 rounded-full bg-violet-400" />}
+        {day.items.length > 0 && <span className="size-1.5 rounded-full bg-ink-900" />}
+      </span>
+    </button>
+  );
+}
+
+/** Phone: what's on the tapped day. */
+function DayDetails({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () => void }) {
+  const nothing = !day.occasions.length && !day.events.length && !day.items.length;
+  return (
+    <div className="mt-4 rounded-xl bg-stone-50 p-4 ring-1 ring-stone-200 md:hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-bold">{fmtDate(day.date, { weekday: "long", day: "numeric", month: "long" })}</div>
+          <div className="text-xs text-stone-500">{day.kind === "none" ? "Day off" : day.kind === "video" ? "Video day" : "Post day"}</div>
+        </div>
+        {day.date >= today && (
+          <Button variant="outline" className="px-3 py-1.5 text-xs" icon={<CalendarPlus className="size-3.5" />} onClick={onAdd}>Add event</Button>
+        )}
+      </div>
+      {nothing && <p className="mt-3 text-sm text-stone-400">Nothing else on this day.</p>}
+      <div className="mt-3 space-y-1.5">
+        {day.occasions.map((o) => (
+          <div key={o.name} className={clsx("rounded-lg px-2.5 py-1.5 text-sm font-medium",
+            o.status === "approved" ? "bg-emerald-50 text-emerald-800" : o.status === "pending" ? "bg-amber-50 text-amber-800" : "bg-stone-100 text-stone-400 line-through")}>
+            {o.status === "approved" ? "✅" : o.status === "pending" ? "⏳" : "✕"} {o.name}
+            <span className="ml-1 text-xs font-normal opacity-70">· {OCC_STATUS[o.status].label}</span>
+          </div>
+        ))}
+        {day.events.map((e) => (
+          <div key={e.id} className={clsx("rounded-lg px-2.5 py-1.5 text-sm font-medium", e.paused ? "bg-stone-100 text-stone-400 line-through" : "bg-violet-50 text-violet-800")}>📌 {e.title}</div>
+        ))}
+        {day.items.map((it) => (
+          <Link key={it.id} to={`/items/${it.id}`} className="flex items-center gap-3 rounded-lg bg-white p-2 ring-1 ring-stone-200">
+            <span className="relative size-10 shrink-0 overflow-hidden rounded-md bg-stone-100">
+              {it.thumb ? <img src={it.thumb} alt="" className="size-full object-cover" /> :
+                <span className="grid size-full place-items-center text-stone-400">{it.kind === "video" ? <Film className="size-4" /> : <ImageIcon className="size-4" />}</span>}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">{it.topic || (it.kind === "video" ? "Video" : "Post")}</span>
+              <span className="text-xs text-stone-500">{STATUS[it.status]?.label}</span>
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Legend() {
   return (
     <div className="mr-3 hidden items-center gap-3 text-xs text-stone-500 lg:flex">
@@ -255,7 +327,7 @@ function EventsCard() {
 
   return (
     <div className="mt-6">
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-bold">Your events</h2>

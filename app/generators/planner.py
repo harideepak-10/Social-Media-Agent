@@ -55,8 +55,9 @@ def _product_summary(product: dict | None) -> str:
     return "\n\n".join(x for x in parts if x)
 
 
-def plan(day: date, kind: str, product: dict | None = None) -> dict:
-    """Return {source, topic, angle, hook, page_urls, context, product}."""
+def plan(day: date, kind: str, product: dict | None = None, notes: str = "") -> dict:
+    """Return {source, topic, angle, hook, page_urls, context, product}.
+    notes: optional instructions typed by the user in "Generate now" – they come first."""
     fest = occasions.festive_for(day)        # approved festival / special day / accepted suggestion
     festival = (fest.name, date.fromisoformat(fest.date)) if fest else None
     event = occasions.event_for(day)         # your events (paused ones are skipped)
@@ -67,7 +68,13 @@ def plan(day: date, kind: str, product: dict | None = None) -> dict:
     # Pick the source in priority order. Videos always explain the website,
     # optionally framed by a festival/trend; posts follow post_priority.
     source, context = "website", ""
-    if kind == "post":
+    notes = (notes or "").strip()
+    if notes:
+        source = "request"
+        context = f"USER'S REQUEST (most important – follow it closely): {notes}"
+        if festival and kind == "post":
+            context += f"\n(For reference only: {festival[0]} is on {festival[1]:%d %b}.)"
+    elif kind == "post":
         for src in settings().get("post_priority", ["festival", "event", "trend", "website"]):
             if src == "festival" and festival:
                 name, fdate = festival
@@ -87,9 +94,8 @@ def plan(day: date, kind: str, product: dict | None = None) -> dict:
             if src == "website":
                 source = "website"
                 break
-    else:
-        if festival:
-            context = f"Optional festive framing: {festival[0]} is on {festival[1]:%d %b}."
+    elif festival:
+        context = f"Optional festive framing: {festival[0]} is on {festival[1]:%d %b}."
 
     prompt = f"""{_brand_block()}
 
@@ -107,7 +113,8 @@ PRODUCT TO FEATURE: {(product or {}).get('name', 'any') } — {(product or {}).g
 
 TOPICS USED RECENTLY (do not repeat): {recent or 'none'}
 
-Plan today's {kind}. If the source is 'trend', pick the ONE trending topic or news item that best connects to what
+Plan today's {kind}. If the source is 'request', build the whole piece around the user's request above
+(topic, angle and hook must follow it). If the source is 'trend', pick the ONE trending topic or news item that best connects to what
 the company offers and explain the connection. If 'website', pick one feature/service/benefit from the website.
 For videos, choose 2-4 website pages (exact URLs from WEBSITE CONTENT) to show on screen.
 

@@ -53,7 +53,7 @@ def _queue_for_pc(item_id: int) -> ContentItem:
 
 
 def generate_for(day: date, kind: str | None = None, force: bool = False,
-                 only_if_missing: bool = False, origin: str = "schedule") -> ContentItem | None:
+                 only_if_missing: bool = False, origin: str = "schedule", notes: str = "") -> ContentItem | None:
     """Create the content item for `day`. Returns None if nothing is scheduled.
     only_if_missing: skip if ANY item exists for the day (used by start-up catch-up)."""
     kind = kind or planner.kind_for(day)
@@ -70,6 +70,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
             log.info("%s: already has an item (#%s, %s) – automatic runs make one per day", day, existing.id, existing.status)
             return existing
         item = ContentItem(run_date=day, kind=kind, status="generating", origin=origin[:20], worker=worker_name(),
+                           notes=(notes or "").strip()[:1000],
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
         s.add(item)
         s.commit()
@@ -89,8 +90,10 @@ def generate_own(item_id: int, day: date, kind: str) -> ContentItem:
             progress.report("Researching festivals, trends and products", 3)
             if (settings().get("site") or {}).get("render_js"):
                 browser.warmup()
-            product = rotation.pick_product(kind)
-            plan = planner.plan(day, kind, product)
+            with get_session() as s:
+                notes = (s.get(ContentItem, item_id).notes or "").strip()
+            product = _product_named_in(notes) or rotation.pick_product(kind)
+            plan = planner.plan(day, kind, product, notes)
             progress.report(f"Planned: {plan['topic']}", 8)
             gen = engine.create(plan, day, item_id, kind, own=True)
             qa = _quality(kind, gen, plan["topic"], item_id)
@@ -122,6 +125,15 @@ def generate_own(item_id: int, day: date, kind: str) -> ContentItem:
                 s.commit()
             notify.telegram(f"⚠️ Content generation failed for {day} ({kind}): {e}")
             return item
+
+
+def _product_named_in(text: str) -> dict | None:
+    """'make a post about the Clinic software' -> the Clinic product (longest matching name wins)."""
+    if not text:
+        return None
+    low = text.lower()
+    hits = [p for p in settings().get("products") or [] if p.get("name") and p["name"].lower() in low]
+    return max(hits, key=lambda p: len(p["name"])) if hits else None
 
 
 def _quality(kind: str, gen: dict, topic: str, item_id: int) -> dict:

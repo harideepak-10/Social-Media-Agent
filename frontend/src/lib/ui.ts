@@ -44,7 +44,7 @@ export function finalCaption(caption: string, hashtags: string, platform: Platfo
 }
 
 const SOURCES: Record<string, string> = {
-  url: "Website link", website: "Product", festival: "Festival", event: "Event", trend: "Trend",
+  url: "Website link", website: "Product", festival: "Festival", event: "Event", trend: "Trend", request: "Your prompt",
 };
 export const sourceLabel = (s: string) => SOURCES[s] ?? (s ? pretty(s) : "—");
 

@@ -73,8 +73,8 @@ export function Confirm({ open, title, body, confirmLabel, variant = "primary", 
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-[2px]" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid items-end justify-items-center bg-black/40 backdrop-blur-[2px] sm:place-items-center sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-t-2xl bg-white p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-6" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-bold">{title}</h3>
         <div className="mt-2 text-sm text-stone-600">{body}</div>
         <div className="mt-6 flex justify-end gap-2">
@@ -101,7 +101,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed bottom-5 right-5 z-50 flex flex-col gap-2">
+      <div className="pointer-events-none fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-stretch gap-2 md:inset-x-auto md:bottom-5 md:right-5 md:items-end">
         {toasts.map((t) => (
           <div key={t.id} className="pointer-events-auto flex max-w-sm items-start gap-3 rounded-xl bg-ink-900 px-4 py-3 text-sm text-white shadow-xl">
             {t.kind === "ok" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-400" /> : <XCircle className="mt-0.5 size-4 shrink-0 text-red-400" />}
@@ -163,7 +163,7 @@ export function SaveBar({ dirty, saving, onSave, onDiscard, label }: {
 }) {
   if (!dirty) return null;
   return (
-    <div className="sticky bottom-4 z-10 mt-6 flex items-center justify-between gap-3 rounded-2xl bg-ink-900 px-5 py-3 text-white shadow-xl">
+    <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 mt-6 md:bottom-4 flex items-center justify-between gap-3 rounded-2xl bg-ink-900 px-5 py-3 text-white shadow-xl">
       <span className="text-sm">{label ?? "You have unsaved changes"}</span>
       <div className="flex gap-2">
         <Button variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={onDiscard}>Discard</Button>
@@ -183,14 +183,14 @@ export function Modal({ open, title, onClose, children, footer }: {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-[2px]" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+    <div className="fixed inset-0 z-50 grid items-end justify-items-center bg-black/40 backdrop-blur-[2px] sm:place-items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[92dvh] w-full max-w-lg flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex shrink-0 items-center justify-between border-b border-stone-100 px-5 py-4 sm:px-6">
           <h3 className="text-lg font-bold">{title}</h3>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-800"><X className="size-5" /></button>
+          <button onClick={onClose} aria-label="Close" className="-mr-1 grid size-9 place-items-center text-stone-400 hover:text-stone-800"><X className="size-5" /></button>
         </div>
-        <div className="px-6 py-5">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">{footer}</div>}
+        <div className="min-h-0 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        {footer && <div className="flex shrink-0 justify-end gap-2 border-t border-stone-100 px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">{footer}</div>}
       </div>
     </div>
   );

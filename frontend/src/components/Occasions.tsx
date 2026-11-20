@@ -68,7 +68,7 @@ export default function OccasionsCard() {
   }, [items]);
 
   return (
-    <Card className="mt-6 p-6">
+    <Card className="mt-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl">
           <h2 className="font-bold">Festivals & special days</h2>
@@ -76,16 +76,18 @@ export default function OccasionsCard() {
             Next 90 days. A greeting is only made for days marked <b className="text-emerald-700">Will post</b>. Undecided and skipped days get the normal product or trend post instead.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
           <Button icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>Add special day</Button>
-          <Button variant="dark" icon={<Sparkles className="size-4" />} loading={suggest.isPending} onClick={() => suggest.mutate()}>Suggest days for my products</Button>
+          <Button variant="dark" icon={<Sparkles className="size-4" />} loading={suggest.isPending} onClick={() => suggest.mutate()}>
+            Suggest<span className="hidden sm:inline">&nbsp;days for my products</span>
+          </Button>
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-1 rounded-xl bg-stone-50 p-1 ring-1 ring-stone-200/70 sm:inline-flex">
+      <div className="-mx-4 mt-5 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:inline-flex sm:flex-wrap sm:rounded-xl sm:bg-stone-50 sm:p-1 sm:ring-1 sm:ring-stone-200/70">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={clsx("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+            className={clsx("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition",
               tab === t.id ? "bg-ink-900 text-white" : "text-stone-600 hover:bg-white")}>
             {t.label}
             {(counts[t.id] ?? 0) > 0 && <span className={clsx("rounded-full px-1.5 text-[11px] font-bold",
@@ -142,14 +144,17 @@ function OccasionRow({ o, open, onToggle, onDecide, busy }: {
           </div>
           {o.kind === "suggestion" && o.reason && <div className="mt-0.5 text-xs italic text-stone-500">{o.reason}</div>}
           {o.note && o.kind !== "event" && <div className="mt-0.5 text-xs text-stone-500">Note for the AI: {o.note}</div>}
+          <span className={clsx("mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 sm:hidden", st.cls)}>
+            <span className={clsx("size-1.5 rounded-full", st.dot)} />{st.label}
+          </span>
         </div>
-        <span className={clsx("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1", st.cls)}>
+        <span className={clsx("hidden items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 sm:inline-flex", st.cls)}>
           <span className={clsx("size-1.5 rounded-full", st.dot)} />{st.label}
         </span>
         {o.kind === "event" ? (
-          <EventPause o={o} />
+          <div className="w-full pl-[4.25rem] sm:w-auto sm:pl-0"><EventPause o={o} /></div>
         ) : (
-          <div className="flex items-center gap-1">
+          <div className="flex w-full items-center gap-1 pl-[4.25rem] sm:w-auto sm:pl-0">
             <button disabled={busy} onClick={() => onDecide("approved")} title="Post a greeting"
               className={clsx("inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold ring-1 transition",
                 o.status === "approved" ? "bg-emerald-600 text-white ring-emerald-600" : "bg-white text-stone-600 ring-stone-200 hover:text-emerald-700")}>
@@ -193,7 +198,7 @@ function OccasionOptions({ o }: { o: Occasion }) {
     onError: (e: Error) => toast("error", e.message),
   });
   return (
-    <div className="ml-0 mt-3 grid gap-4 rounded-xl bg-stone-50 p-4 ring-1 ring-stone-200/70 sm:ml-[68px] md:grid-cols-[auto_auto_1fr_auto] md:items-end">
+    <div className="ml-0 mt-3 grid grid-cols-1 gap-4 rounded-xl bg-stone-50 p-4 ring-1 ring-stone-200/70 sm:ml-[68px] md:grid-cols-[auto_auto_1fr_auto] md:items-end">
       <Field label="Every year">
         <div className="flex gap-1 rounded-lg bg-white p-1 ring-1 ring-stone-200">
           {(["always", "never", "ask"] as const).map((r) => (

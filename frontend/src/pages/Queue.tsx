@@ -1,12 +1,12 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CalendarDays, ChevronDown, Film, ImageIcon, Inbox, Search, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { CalendarDays, Film, ImageIcon, Inbox, Search, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { api, type Status } from "../lib/api";
 import { fmtDate, workerText } from "../lib/ui";
 import ItemCard from "../components/ItemCard";
-import { Button, Confirm, EmptyState, useToast } from "../components/ui";
+import { Button, Confirm, EmptyState, Modal, useToast } from "../components/ui";
 import { PendingOccasionsBanner } from "../components/Occasions";
 
 const TABS: { id: string; label: string; statuses: Status[] | null }[] = [
@@ -25,15 +25,9 @@ export default function Queue() {
   const [kind, setKind] = useState<"" | "video" | "post">("");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
-  const [menu, setMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [genOpen, setGenOpen] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => setSearch(q), 300); return () => clearTimeout(t); }, [q]);
-  useEffect(() => {
-    const close = (e: MouseEvent) => menuRef.current && !menuRef.current.contains(e.target as Node) && setMenu(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
 
   const statuses = TABS.find((t) => t.id === tab)?.statuses;
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: api.meta });
@@ -66,7 +60,7 @@ export default function Queue() {
   });
 
   const generate = useMutation({
-    mutationFn: (k?: "video" | "post") => api.generate(k),
+    mutationFn: ({ k, notes }: { k?: "video" | "post"; notes?: string }) => api.generate(k, notes ?? ""),
     onSuccess: () => {
       toast("ok", "Started – it will appear here in a few seconds");
       setTimeout(() => qc.invalidateQueries({ queryKey: ["items"] }), 1500);
@@ -88,34 +82,21 @@ export default function Queue() {
           <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Content queue</h1>
           <p className="mt-1 text-sm text-stone-500">Review what the agent made. Nothing goes out until you approve it.</p>
         </div>
-        <div className="flex gap-2">
-          <div className="relative" ref={menuRef}>
-            <Button icon={<Wand2 className="size-4" />} loading={generate.isPending} onClick={() => setMenu((m) => !m)}>
-              Generate now <ChevronDown className="size-4 opacity-60" />
-            </Button>
-            {menu && (
-              <div className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-xl bg-white p-1 shadow-xl ring-1 ring-stone-200">
-                {today && today.kind !== "none" && (
-                  <MenuItem icon={<CalendarDays className="size-4" />} title="Today's scheduled content"
-                    sub={`${today.kind === "video" ? "Video" : "Post"} · picks topic & product`}
-                    onClick={() => { setMenu(false); generate.mutate(undefined); }} />
-                )}
-                <MenuItem icon={<ImageIcon className="size-4" />} title="A post" sub="Festival, trend or product – ~1 min"
-                  onClick={() => { setMenu(false); generate.mutate("post"); }} />
-                <MenuItem icon={<Film className="size-4" />} title="A video" sub="Product promo, 16:9 + 9:16 – ~5 min"
-                  onClick={() => { setMenu(false); generate.mutate("video"); }} />
-              </div>
-            )}
-          </div>
-          <Link to="/create"><Button variant="primary" icon={<Sparkles className="size-4" />}>Create from URL</Button></Link>
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+          <Button icon={<Wand2 className="size-4" />} loading={generate.isPending} onClick={() => setGenOpen(true)}>
+            Generate now
+          </Button>
+          <Link to="/create" className="contents sm:block"><Button variant="primary" icon={<Sparkles className="size-4" />} className="w-full"><span className="sm:hidden">From URL</span><span className="hidden sm:inline">Create from URL</span></Button></Link>
         </div>
       </div>
+      <GenerateModal open={genOpen} today={today} busy={generate.isPending} onClose={() => setGenOpen(false)}
+        onGenerate={(k, notes) => generate.mutate({ k, notes }, { onSuccess: () => setGenOpen(false) })} />
 
       {/* week strip */}
       {meta && (
-        <div className="mt-6 grid grid-cols-7 gap-2">
+        <div className="-mx-5 mt-6 flex snap-x gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-7 md:overflow-visible md:px-0">
           {meta.week.map((d, i) => (
-            <div key={d.date} className={clsx("rounded-xl px-3 py-2.5 ring-1", i === 0 ? "bg-ink-900 text-white ring-ink-900" : "bg-white ring-stone-200/80")}>
+            <div key={d.date} className={clsx("min-w-[6.5rem] shrink-0 snap-start rounded-xl px-3 py-2.5 ring-1 md:min-w-0", i === 0 ? "bg-ink-900 text-white ring-ink-900" : "bg-white ring-stone-200/80")}>
               <div className={clsx("text-[11px] font-semibold uppercase tracking-wide", i === 0 ? "text-white/60" : "text-stone-400")}>
                 {i === 0 ? "Today" : fmtDate(d.date, { weekday: "short" })} · {fmtDate(d.date, { day: "numeric" })}
               </div>
@@ -147,13 +128,13 @@ export default function Queue() {
 
       {/* filters */}
       <div className="mt-8 flex flex-wrap items-center gap-3">
-        <div className="flex flex-wrap gap-1 rounded-xl bg-white p-1 ring-1 ring-stone-200/80">
+        <div className="-mx-5 flex w-[calc(100%+2.5rem)] gap-1 overflow-x-auto px-5 [scrollbar-width:none] md:mx-0 md:w-auto md:flex-wrap md:overflow-visible md:rounded-xl md:bg-white md:p-1 md:px-1 md:ring-1 md:ring-stone-200/80">
           {TABS.map((t) => {
             const n = count(t);
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={clsx("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-                  tab === t.id ? "bg-ink-900 text-white" : "text-stone-600 hover:bg-stone-100")}>
+                className={clsx("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                  tab === t.id ? "bg-ink-900 text-white" : "bg-white text-stone-600 ring-1 ring-stone-200/80 hover:bg-stone-100 md:bg-transparent md:ring-0")}>
                 {t.label}
                 {n > 0 && <span className={clsx("rounded-full px-1.5 text-[11px] font-bold",
                   tab === t.id ? "bg-white/20" : t.id === "review" ? "bg-brand-600 text-white" : "bg-stone-100 text-stone-500")}>{n}</span>}
@@ -189,16 +170,16 @@ export default function Queue() {
           body={`All ${count(TABS.find((t) => t.id === "archived")!)} rejected, stopped and failed items and their files are removed for good.`}
           confirmLabel="Delete all" variant="danger" onConfirm={() => clear.mutate()} onClose={() => setConfirmClear(false)} />
         {isLoading ? (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => <div key={i} className="shimmer h-80 rounded-2xl bg-stone-200/60" />)}
           </div>
         ) : items.length === 0 ? (
           <EmptyState icon={<Inbox className="size-6" />}
             title={tab === "review" ? "Nothing waiting for review" : "No content here yet"}
             text={tab === "all" && !search ? "The agent prepares tomorrow's content every evening. Or create something right now." : "Try another filter or search."}
-            action={tab === "all" && !search ? <Button variant="primary" icon={<Wand2 className="size-4" />} onClick={() => generate.mutate(undefined)}>Generate today's content</Button> : undefined} />
+            action={tab === "all" && !search ? <Button variant="primary" icon={<Wand2 className="size-4" />} onClick={() => setGenOpen(true)}>Generate content</Button> : undefined} />
         ) : (
-          <div className="grid grid-cols-1 items-start gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 items-start gap-3 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
             {items.map((item) => (
               <ItemCard key={item.id} item={item} busy={action.isPending}
                 onAction={(id, a) => action.mutate({ id, a })} />
@@ -213,11 +194,60 @@ export default function Queue() {
   );
 }
 
-function MenuItem({ icon, title, sub, onClick }: { icon: React.ReactNode; title: string; sub: string; onClick: () => void }) {
+const IDEAS = [
+  "Feature the Restaurant POS for busy restaurant owners",
+  "A tip that saves small businesses time",
+  "Announce our free demo – book this week",
+  "Fun, light-hearted post for Friday",
+  "Myth vs fact about AI agents",
+];
+
+function GenerateModal({ open, today, busy, onClose, onGenerate }: {
+  open: boolean; today?: { kind: string }; busy: boolean;
+  onClose: () => void; onGenerate: (kind: "video" | "post" | undefined, notes: string) => void;
+}) {
+  const [kind, setKind] = useState<"scheduled" | "post" | "video">("post");
+  const [notes, setNotes] = useState("");
+  useEffect(() => { if (open) setKind(today && today.kind !== "none" ? "scheduled" : "post"); }, [open, today]);
+  const choices = [
+    ...(today && today.kind !== "none" ? [{ id: "scheduled" as const, icon: <CalendarDays className="size-5" />, title: "Today's plan",
+      sub: today.kind === "video" ? "Video · as scheduled" : "Post · as scheduled" }] : []),
+    { id: "post" as const, icon: <ImageIcon className="size-5" />, title: "A post", sub: "Image + captions · ~1 min" },
+    { id: "video" as const, icon: <Film className="size-5" />, title: "A video", sub: "16:9 + 9:16 · ~5 min" },
+  ];
   return (
-    <button onClick={onClick} className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-stone-50">
-      <span className="mt-0.5 text-stone-500">{icon}</span>
-      <span><span className="block text-sm font-semibold">{title}</span><span className="block text-xs text-stone-500">{sub}</span></span>
-    </button>
+    <Modal open={open} onClose={onClose} title="Generate now"
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" icon={<Wand2 className="size-4" />} loading={busy}
+          onClick={() => onGenerate(kind === "scheduled" ? undefined : kind, notes.trim())}>Generate</Button>
+      </>}>
+      <div className="text-sm font-semibold">What should it make?</div>
+      <div className={clsx("mt-2 grid gap-2", choices.length === 3 ? "grid-cols-3" : "grid-cols-2")}>
+        {choices.map((c) => (
+          <button key={c.id} onClick={() => setKind(c.id)}
+            className={clsx("flex flex-col items-start gap-1 rounded-xl p-3 text-left ring-1 transition",
+              kind === c.id ? "bg-brand-50 ring-2 ring-brand-500" : "bg-white ring-stone-200 hover:bg-stone-50")}>
+            <span className={kind === c.id ? "text-brand-700" : "text-stone-500"}>{c.icon}</span>
+            <span className="text-sm font-semibold leading-tight">{c.title}</span>
+            <span className="text-[11px] leading-tight text-stone-500">{c.sub}</span>
+          </button>
+        ))}
+      </div>
+      <label className="mt-5 block text-sm font-semibold" htmlFor="gen-notes">
+        Your prompt <span className="font-normal text-stone-400">(optional)</span>
+      </label>
+      <textarea id="gen-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={1000}
+        placeholder="e.g. A post about our Clinic software for salon owners, friendly tone, mention the free demo"
+        className="mt-2 w-full resize-none rounded-xl bg-stone-50 px-3.5 py-3 text-sm outline-none ring-1 ring-stone-200 placeholder:text-stone-400 focus:bg-white focus:ring-2 focus:ring-ink-900" />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {IDEAS.map((t) => (
+          <button key={t} onClick={() => setNotes(t)} className="rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-200">{t}</button>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-stone-500">
+        Leave it empty and the agent picks the topic itself (festival, trend or product). Name a product and it features that one.
+      </p>
+    </Modal>
   );
 }
