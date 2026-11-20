@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -45,6 +46,14 @@ def _quality_summary(i: ContentItem) -> dict | None:
             "issues": len(q.get("problems") or []) + sum(c.get("status") == "fail" for c in q.get("checks") or [])}
 
 
+def _metrics_summary(i: ContentItem) -> dict | None:
+    m = i.metrics
+    if not m:
+        return None
+    from . import insights
+    return insights.totals(m)
+
+
 def serialize(i: ContentItem, full: bool = False) -> dict:
     data = {
         "id": i.id, "date": i.run_date.isoformat(), "kind": i.kind, "status": i.status,
@@ -56,6 +65,10 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
         "quality": _quality_summary(i), "origin": i.origin or ("url" if i.source_url else ""),
         "created_at": i.created_at.isoformat() + "Z" if i.created_at else None,
         "published_at": i.published_at.isoformat() + "Z" if i.published_at else None,
+        "publish_time": i.publish_time or "", "job": i.job or "",
+        "deleted_at": i.deleted_at.isoformat() + "Z" if i.deleted_at else None,
+        "missed": i.status == "approved" and i.run_date < pipeline.today() - timedelta(days=1),
+        "metrics": _metrics_summary(i),
     }
     if full:
         try:
@@ -63,9 +76,18 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
         except ValueError:
             script = i.script_json
         data.update(files=[f for f in (saved_as(i.media_path), saved_as(i.media_alt_path)) if f],
-                    quality_report=i.quality, angle=i.angle, captions=i.captions, hashtags=i.hashtags, results=i.results, script=script,
+                    quality_report=i.quality, metrics_detail=i.metrics, editable=_editable(i), angle=i.angle, captions=i.captions, hashtags=i.hashtags, results=i.results, script=script,
                     previews={p: pipeline.full_caption(i, p) for p in i.platform_list} if i.captions else {})
     return data
+
+
+def _editable(i: ContentItem) -> dict:
+    """Which in-place editors are available for this item."""
+    from . import storage
+    poster = bool(i.kind == "post" and i.media_path and i.format != "simple"
+                  and (storage.is_url(i.media_path) or (DATA_DIR / "media" / storage.poster_source_key(i.media_path)).exists()))
+    video = bool(i.kind == "video" and i.media_path and i.format != "simple")
+    return {"poster_text": poster, "video_scenes": video}
 
 
 def _get(s, item_id: int) -> ContentItem:
@@ -102,20 +124,28 @@ def _run_check(item_id: int) -> dict:
         return serialize(item, full=True)
 
 
-def _delete_item(s, item: ContentItem) -> None:
-    from . import storage
-    for ref in {item.media_path, item.media_alt_path, item.thumb_path}:
-        storage.delete_media(ref)
+def _to_bin(item: ContentItem) -> None:
+    if item.status not in DELETABLE:
+        raise HTTPException(409, "Only rejected, stopped or failed items can be deleted")
+    item.deleted_at = datetime.utcnow()
+
+
+def _purge(s, item: ContentItem) -> None:
+    if item.deleted_at is None:
+        raise HTTPException(409, "Move it to the bin first")
+    pipeline.delete_files(item)
     s.delete(item)
 
 
 @router.delete("/items/{item_id}")
-def delete_item(item_id: int, _: str = User):
+def delete_item(item_id: int, forever: bool = False, _: str = User):
+    """Moves a rejected/failed item to the bin (restorable for 7 days); forever=true empties it from the bin."""
     with get_session() as s:
         item = _get(s, item_id)
-        if item.status not in DELETABLE:
-            raise HTTPException(409, "Only rejected, stopped or failed items can be deleted")
-        _delete_item(s, item)
+        if forever:
+            _purge(s, item)
+        else:
+            _to_bin(item)
         s.commit()
     return {"ok": True}
 
@@ -123,11 +153,71 @@ def delete_item(item_id: int, _: str = User):
 @router.post("/items/delete-rejected")
 def delete_rejected(_: str = User):
     with get_session() as s:
-        items = s.scalars(select(ContentItem).where(ContentItem.status.in_(DELETABLE))).all()
+        items = s.scalars(select(ContentItem).where(ContentItem.status.in_(DELETABLE),
+                                                    ContentItem.deleted_at.is_(None))).all()
         for item in items:
-            _delete_item(s, item)
+            _to_bin(item)
         s.commit()
     return {"deleted": len(items)}
+
+
+@router.post("/items/{item_id}/restore")
+def restore_item(item_id: int, _: str = User):
+    with get_session() as s:
+        item = _get(s, item_id)
+        item.deleted_at = None
+        s.commit()
+        return serialize(item, full=True)
+
+
+@router.post("/bin/empty")
+def empty_bin(_: str = User):
+    with get_session() as s:
+        items = s.scalars(select(ContentItem).where(ContentItem.deleted_at.is_not(None))).all()
+        for item in items:
+            _purge(s, item)
+        s.commit()
+    return {"deleted": len(items)}
+
+
+class BulkIn(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=200)
+    action: str
+
+
+@router.post("/items/bulk")
+def bulk(body: BulkIn, _: str = User):
+    """Approve / reject / delete / restore / delete-forever several items at once. Skips the ones that can't."""
+    if body.action not in ("approve", "reject", "delete", "restore", "purge"):
+        raise HTTPException(400, "Unknown action")
+    done, skipped = [], []
+    with get_session() as s:
+        for item_id in body.ids:
+            item = s.get(ContentItem, item_id)
+            if not item:
+                skipped.append({"id": item_id, "reason": "not found"})
+                continue
+            try:
+                if body.action == "approve":
+                    if item.status not in ("pending_approval", "rejected", "failed", "partial") or not item.media_path \
+                            or item.deleted_at:
+                        raise HTTPException(409, f"is {item.status}")
+                    item.status = "approved"
+                elif body.action == "reject":
+                    if item.status not in ("pending_approval", "approved") or item.deleted_at:
+                        raise HTTPException(409, f"is {item.status}")
+                    item.status = "rejected"
+                elif body.action == "delete":
+                    _to_bin(item)
+                elif body.action == "restore":
+                    item.deleted_at = None
+                else:
+                    _purge(s, item)
+                done.append(item_id)
+            except HTTPException as e:
+                skipped.append({"id": item_id, "reason": str(e.detail)})
+        s.commit()
+    return {"done": done, "skipped": skipped}
 
 
 # ── auth ──────────────────────────────────────────────────────────────────
@@ -153,8 +243,12 @@ def me(user: str = User):
 def meta(_: str = User):
     today = pipeline.today()
     with get_session() as s:
-        counts = dict(s.execute(select(ContentItem.status, func.count()).group_by(ContentItem.status)).all())
-    from datetime import timedelta
+        counts = dict(s.execute(select(ContentItem.status, func.count()).where(ContentItem.deleted_at.is_(None))
+                                .group_by(ContentItem.status)).all())
+        counts["bin"] = s.scalar(select(func.count()).select_from(ContentItem).where(ContentItem.deleted_at.is_not(None))) or 0
+        counts["missed"] = s.scalar(select(func.count()).select_from(ContentItem).where(
+            ContentItem.status == "approved", ContentItem.deleted_at.is_(None),
+            ContentItem.run_date < pipeline.today() - timedelta(days=1))) or 0
     from . import occasions
     occ = occasions.occasions_between(today, today + timedelta(days=6))
     week = [{"date": (today + timedelta(days=n)).isoformat(),
@@ -174,7 +268,48 @@ def meta(_: str = User):
         "video": {"formats": (settings().get("video") or {}).get("formats", []),
                   "voiceover": (settings().get("video") or {}).get("voiceover", True)},
         "video_worker": _video_worker(),
+        "agent": {**pipeline.agent_state(), "active_today": not pipeline.agent_paused()},
+        "setup_done": bool(settings().get("setup_done", True)),
     }
+
+
+# ── results after posting ──────────────────────────────────────────────────
+@router.get("/insights")
+def get_insights(days: int = 30, _: str = User):
+    from . import insights
+    return insights.report(min(max(days, 7), 365))
+
+
+@router.post("/insights/refresh")
+def refresh_insights(days: int = 30, _: str = User):
+    """Fetch the latest numbers for recent posts and let the AI write a new 'what worked best'."""
+    from . import insights
+    n = insights.refresh_recent(min(max(days, 7), 365))
+    try:
+        summary = insights.write_summary(days)
+    except Exception as e:
+        raise HTTPException(400, f"Numbers updated for {n} post(s), but the AI summary failed: {str(e)[:150]}")
+    return {"refreshed": n, "summary": summary, "report": insights.report(days)}
+
+
+class AgentIn(BaseModel):
+    paused: bool
+    paused_until: str = ""   # last paused day (YYYY-MM-DD); empty = until you resume
+
+
+@router.put("/agent")
+def set_agent(body: AgentIn, _: str = User):
+    """Pause / resume all automatic work (preparing content and posting). Manual buttons keep working."""
+    from .config import update_yaml
+    until = body.paused_until.strip() if body.paused else ""
+    if until:
+        try:
+            if date.fromisoformat(until) < pipeline.today():
+                raise HTTPException(400, "Pick today or a later day")
+        except ValueError:
+            raise HTTPException(400, "paused_until must be YYYY-MM-DD")
+    update_yaml("settings.yaml", {"agent": {"paused": body.paused, "paused_until": until}})
+    return {**pipeline.agent_state(), "active_today": not pipeline.agent_paused()}
 
 
 def _video_worker() -> dict:
@@ -192,9 +327,9 @@ def _video_worker() -> dict:
 # ── content queue ─────────────────────────────────────────────────────────
 @router.get("/items")
 def list_items(status: str | None = None, kind: str | None = None, q: str | None = None,
-               limit: int = 60, offset: int = 0, _: str = User):
+               limit: int = 60, offset: int = 0, bin: bool = False, _: str = User):
     with get_session() as s:
-        query = select(ContentItem)
+        query = select(ContentItem).where(ContentItem.deleted_at.is_not(None) if bin else ContentItem.deleted_at.is_(None))
         if status:
             query = query.where(ContentItem.status.in_(status.split(",")))
         if kind:
@@ -220,6 +355,8 @@ class ItemPatch(BaseModel):
     captions: dict[str, str] | None = None
     hashtags: str | None = None
     platforms: list[str] | None = None
+    date: str | None = None            # move to another day (YYYY-MM-DD)
+    publish_time: str | None = None    # "HH:MM", or "" for the default posting time
 
 
 @router.patch("/items/{item_id}")
@@ -237,6 +374,19 @@ def update_item(item_id: int, body: ItemPatch, _: str = User):
             if not valid:
                 raise HTTPException(400, "Pick at least one platform")
             item.platforms = ",".join(valid)
+        if body.date is not None:
+            try:
+                new_day = date.fromisoformat(body.date)
+            except ValueError:
+                raise HTTPException(400, "date must be YYYY-MM-DD")
+            if new_day < pipeline.today() and item.status in ("approved", "pending_approval"):
+                raise HTTPException(400, "Pick today or a later day")
+            item.run_date = new_day
+        if body.publish_time is not None:
+            t = body.publish_time.strip()
+            if t and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
+                raise HTTPException(400, "time must be HH:MM (24h), e.g. 18:00")
+            item.publish_time = t
         s.commit()
         return serialize(item, full=True)
 

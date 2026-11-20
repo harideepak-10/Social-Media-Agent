@@ -32,12 +32,24 @@ def _lru(options: list[str], used: list[str], avoid_last: int) -> str:
     return max(pool, key=lambda o: used.index(o))  # used longest ago
 
 
+# Added after people already saved their format/theme lists: switched on for them automatically
+# (settings post.catalog_version < 2). Once the list is saved again from Settings it is respected as is.
+NEW_V2 = {"formats": ["object_metaphor", "services_overview"], "themes": ["receipt_red", "forest_mint"]}
+
+
+def allowed(key: str, catalog: dict) -> list[str]:
+    cfg = (settings().get("post") or {})
+    lst = list(cfg.get(key) or catalog)
+    if cfg.get(key) and int(cfg.get("catalog_version") or 1) < 2:
+        lst += [x for x in NEW_V2[key] if x not in lst]
+    return [x for x in lst if x in catalog]
+
+
 def pick_post_format(source: str, available: set[str], own: bool = True) -> str:
     """available: capabilities we have today, e.g. {"product", "shot", "festival", "trend", "photo"}."""
-    cfg = (settings().get("post") or {})
-    allowed = cfg.get("formats") or list(POST_FORMATS)
+    ok = allowed("formats", POST_FORMATS)
     options = [f for f, spec in POST_FORMATS.items()
-               if f in allowed and source in spec["sources"] and spec["needs"] <= available]
+               if f in ok and source in spec["sources"] and spec["needs"] <= available]
     if not options:
         options = ["big_statement"]
     used = [i.format for i in _history("post", own_only=own) if i.format]
@@ -45,9 +57,8 @@ def pick_post_format(source: str, available: set[str], own: bool = True) -> str:
 
 
 def pick_post_theme(fmt: str, own: bool = True) -> str:
-    cfg = (settings().get("post") or {})
-    allowed = cfg.get("themes") or list(POST_THEMES)
-    options = [t for t in (FESTIVE_THEMES if fmt == "festive_greeting" else list(POST_THEMES)) if t in allowed]
+    ok = allowed("themes", POST_THEMES)
+    options = [t for t in (FESTIVE_THEMES if fmt == "festive_greeting" else list(POST_THEMES)) if t in ok]
     if fmt != "festive_greeting":
         options = [t for t in options if t != "midnight_violet"] or options
     used = [i.theme for i in _history("post", own_only=own) if i.theme]

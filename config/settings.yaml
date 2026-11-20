@@ -94,8 +94,11 @@ post:
   self_review: true          # the AI looks at each rendered post and fixes problems (1-2 extra calls)
   # formats / themes to rotate (remove any you don't like). Never the same format within 4 posts.
   formats: [explainer_steps, ui_showcase, before_after, myth_fact, checklist, chat_demo, relatable_meme,
-            big_statement, question_engage, trend_take, tip_card, festive_greeting, event_announcement]
-  themes: [cream_editorial, midnight_violet, dark_tech, amber_noir, navy_gold, clean_white, mint_fresh, sunset_bold]
+            big_statement, question_engage, trend_take, tip_card, object_metaphor, services_overview,
+            festive_greeting, event_announcement]
+  themes: [cream_editorial, midnight_violet, dark_tech, amber_noir, navy_gold, clean_white, mint_fresh, sunset_bold,
+           receipt_red, forest_mint]
+  catalog_version: 2
 
 creative:
   fallback: true             # if the premium designer fails, publish-ready simple version instead of nothing

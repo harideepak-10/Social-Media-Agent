@@ -119,21 +119,48 @@ def brand_logo(brand: dict) -> dict | None:
     return None
 
 
-# ── optional AI images (for meme / festive photo styles) ───────────────────
-def image_provider() -> str:
+# ── optional AI images (festive backgrounds, meme / photo styles) ───────────
+def image_provider(purpose: str = "general") -> str:
+    """openai | gemini | pollinations | '' (none). `purpose` is kept for callers (festive / general)."""
     p = env("IMAGE_PROVIDER", "none").lower()
     if p == "openai" and env("OPENAI_API_KEY"):
         return "openai"
     if p == "gemini" and env("GEMINI_API_KEY"):
         return "gemini"
+    if p == "pollinations" and env("POLLINATIONS_API_KEY"):
+        return "pollinations"
     return ""
 
 
-def generate_image(prompt: str, out: Path, portrait: bool = True) -> Path | None:
-    provider = image_provider()
+def _pollinations(prompt: str, out: Path, size: tuple[int, int], seed: int | None) -> Path:
+    """Pollinations.ai (Flux) – free key from enter.pollinations.ai. (The old keyless endpoint gives small,
+    watermarked images that ignore most of the prompt, so it is not used.)"""
+    from urllib.parse import quote
+
+    w, h = size
+    params = {"width": w, "height": h, "model": env("POLLINATIONS_MODEL", "flux"), "nologo": "true",
+              "enhance": "false", "safe": "true", "seed": seed if seed is not None else 42}
+    r = httpx.get(f"https://gen.pollinations.ai/image/{quote(prompt[:1500], safe='')}", params=params,
+                  headers={"Authorization": f"Bearer {env('POLLINATIONS_API_KEY')}"}, timeout=240, follow_redirects=True)
+    r.raise_for_status()
+    if not r.headers.get("content-type", "").startswith("image/"):
+        raise RuntimeError(f"Pollinations returned {r.headers.get('content-type')}: {r.text[:200]}")
+    out.write_bytes(r.content)
+    im = Image.open(out).convert("RGB")
+    if im.width < 500 or im.height < 500:
+        raise RuntimeError(f"image too small ({im.width}x{im.height})")
+    im.save(out, quality=95)
+    return out
+
+
+def generate_image(prompt: str, out: Path, portrait: bool = True, size: tuple[int, int] | None = None,
+                   seed: int | None = None, purpose: str = "general") -> Path | None:
+    provider = image_provider(purpose)
     if not provider:
         return None
     try:
+        if provider == "pollinations":
+            return _pollinations(prompt, out, size or ((1080, 1350) if portrait else (1350, 1080)), seed)
         if provider == "openai":
             r = httpx.post("https://api.openai.com/v1/images/generations", timeout=180,
                            headers={"Authorization": f"Bearer {env('OPENAI_API_KEY')}"},
@@ -143,9 +170,11 @@ def generate_image(prompt: str, out: Path, portrait: bool = True) -> Path | None
             out.write_bytes(base64.b64decode(r.json()["data"][0]["b64_json"]))
         else:
             model = env("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+            body = {"contents": [{"parts": [{"text": prompt}]}]}
+            if size:
+                body["generationConfig"] = {"imageConfig": {"aspectRatio": "4:5" if size[1] > size[0] else "16:9"}}
             r = httpx.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                           params={"key": env("GEMINI_API_KEY")}, timeout=180,
-                           json={"contents": [{"parts": [{"text": prompt}]}]})
+                           params={"key": env("GEMINI_API_KEY")}, timeout=180, json=body)
             r.raise_for_status()
             parts = r.json()["candidates"][0]["content"]["parts"]
             data = next(p["inlineData"]["data"] for p in parts if "inlineData" in p)

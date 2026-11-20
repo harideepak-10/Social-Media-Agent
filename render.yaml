@@ -28,6 +28,10 @@ services:
         value: "1"
       - key: VIDEO_RENDERER      # "pc": videos are queued and made by run_video_worker.bat on your PC
         value: pc
+      - key: IMAGE_PROVIDER      # pollinations (free key) | gemini | openai | none – festival photo backgrounds
+        value: none
+      - key: POLLINATIONS_API_KEY  # free secret key from enter.pollinations.ai
+        sync: false
       - key: TTS_PROVIDER
         value: edge
       - key: DATA_DIR            # put a persistent disk here on a paid plan (see README)

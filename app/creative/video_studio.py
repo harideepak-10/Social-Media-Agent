@@ -24,7 +24,7 @@ from .. import llm, progress
 from .. import storage
 from ..config import ASSETS_DIR, company, settings
 from ..generators import browser, ffmpeg, tts
-from . import assets, icons, rotation, visuals
+from . import assets, festive, icons, rotation, visuals
 from .catalog import ICONS, VIDEO_THEMES
 
 log = logging.getLogger(__name__)
@@ -395,7 +395,7 @@ def _audio_track(segments: list[tuple[Path | None, float, float]], total: float,
 
 
 def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], product_name: str,
-          orientations: list[str], voice: bool) -> dict[str, Path]:
+          orientations: list[str], voice: bool, voice_name: str | None = None) -> dict[str, Path]:
     theme = VIDEO_THEMES[theme_name]
     vcfg = settings().get("video") or {}
     fps = int(vcfg.get("fps", 30))
@@ -403,22 +403,24 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
     logo_file = None
     if logo:
         shutil.copy(logo[theme["logo"]], work / "logo.png")
+        shutil.copy(logo["light"], work / "logo_light.png")  # festive opening is always a night scene
         logo_file = "logo.png"
     for sc in board["scenes"]:
         shutil.copy(sc["_block"]["path"], work / Path(sc["_block"]["path"]).name)
 
     # 1) voice-over and timing
     progress.report("Recording the voice-over" if voice else "Timing the scenes", 35)
-    parts = [("intro", board.get("intro") or {})] + [("scene", s) for s in board["scenes"]] + \
+    parts = ([("festive", board["festive"])] if (board.get("festive") or {}).get("name") else []) + \
+            [("intro", board.get("intro") or {})] + [("scene", s) for s in board["scenes"]] + \
             [("grid", board.get("grid") or {}), ("outro", board.get("outro") or {})]
     if not (board.get("grid") or {}).get("items"):
         parts = [p for p in parts if p[0] != "grid"]
-    base = {"intro": 4.6, "scene": 6.4, "grid": 6.0, "outro": 5.0}
+    base = {"festive": 5.8, "intro": 4.6, "scene": 6.4, "grid": 6.0, "outro": 5.0}
     timeline, t0 = [], 0.0
     for i, (kind, d) in enumerate(parts):
         vpath, vsec = None, 0.0
         if voice and d.get("voice"):
-            vpath, vsec = tts.speak(d["voice"], work / f"vo_{i}")
+            vpath, vsec = tts.speak(d["voice"], work / f"vo_{i}", voice=voice_name or board.get("voice_name") or None)
         dur = max(base[kind], vsec + 1.2) if vpath else base[kind]
         dur = min(dur, 12.0)
         timeline.append((kind, d, vpath, t0, dur))
@@ -431,7 +433,10 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         size = SIZES[orient]
         scenes, si = [], 0
         for i, (kind, d, _, _, dur) in enumerate(timeline):
-            if kind == "intro":
+            if kind == "festive":
+                doc = festive.video_scene(d, d.get("kit") or festive.kit_for(d.get("name", "")), size, dur,
+                                          "logo_light.png" if logo_file else None, seed=len(d.get("name", "")) * 97 + i)
+            elif kind == "intro":
                 doc = scene_intro(d, theme, size, dur, logo_file, product_name)
             elif kind == "scene":
                 doc = scene_feature(d, theme, size, dur, logo_file, si,
@@ -490,12 +495,20 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
 
     progress.report(f"AI is writing the storyboard from {len(cap['blocks'])} screens", 25)
     board = storyboard(plan, product, cap, work, voice)
+    if plan.get("festive_frame"):
+        try:  # a short animated festival greeting opens the video
+            board["festive"] = festive.video_greeting(plan, plan["festive_frame"])
+            if not voice:
+                board["festive"]["voice"] = ""
+        except Exception as e:
+            log.warning("festive opening skipped: %s", e)
     product_name = (product or {}).get("name", "")
     files = build(board, theme_name, work, storage.video_paths(day, item_id, plan, "promo"),
                   product_name, orientations, voice)
     main = files[orientations[0]]
     alt = files.get("vertical") if orientations[0] != "vertical" else None
     thumb = ffmpeg.thumbnail(main, storage.thumb_path(main), at=1.6)
+    src = save_source(board, theme_name, product_name, storage.WORK_DIR / f"vsrc_{item_id}")  # for scene edits
     shutil.rmtree(work, ignore_errors=True)
 
     tags = [t if t.startswith("#") else f"#{t}" for t in board.get("hashtags", [])]
@@ -505,4 +518,57 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
     clean.update({"headline": (board.get("intro") or {}).get("headline", ""), "theme": theme_name,
                   "product": product_name})
     return {"copy": board, "media": main, "alt": alt, "thumb": thumb, "hashtags": " ".join(tags),
-            "script_json": json.dumps(clean, ensure_ascii=False, indent=2)}
+            "script_json": json.dumps(clean, ensure_ascii=False, indent=2), "video_source": src}
+
+
+# ── editable source: storyboard.json + the captured screens ──────────────────
+EDITABLE = {"festive": ("greeting", "name", "quote", "voice"),
+            "intro": ("eyebrow", "headline", "accent", "sub", "voice"),
+            "scene": ("eyebrow", "headline", "accent", "voice"),
+            "grid": ("eyebrow", "headline", "accent", "voice"),
+            "outro": ("headline", "accent", "cta", "url", "voice")}
+
+
+def save_source(board: dict, theme_name: str, product_name: str, dest: Path) -> Path:
+    """Everything needed to rebuild this video later with edited texts / another voice."""
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    out = json.loads(json.dumps({k: v for k, v in board.items() if k != "scenes"}, default=str))
+    out["scenes"] = []
+    for i, sc in enumerate(board.get("scenes") or []):
+        item = {k: v for k, v in sc.items() if k != "_block"}
+        b = sc.get("_block")
+        if b and Path(b["path"]).exists():
+            name = f"screen_{i}{Path(b['path']).suffix or '.png'}"
+            shutil.copy(b["path"], dest / name)
+            item["_block"] = {**{k: v for k, v in b.items() if k != "path"}, "file": name}
+        out["scenes"].append(item)
+    out["_theme"], out["_product"] = theme_name, product_name
+    (dest / "storyboard.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    return dest
+
+
+def load_source(src: Path) -> tuple[dict, str, str]:
+    board = json.loads((src / "storyboard.json").read_text(encoding="utf-8"))
+    for sc in board.get("scenes") or []:
+        b = sc.get("_block")
+        if b and b.get("file"):
+            b["path"] = str(src / b["file"])
+    return board, board.pop("_theme", ""), board.pop("_product", "")
+
+
+def rewrite_part(board: dict, part: str, instruction: str) -> dict:
+    """AI rewrites one part of the storyboard (texts only, same fields) following the user's instruction."""
+    kind, _, idx = part.partition(":")
+    d = (board.get("scenes") or [])[int(idx)] if kind == "scene" else board.get(kind) or {}
+    fields = {k: d.get(k, "") for k in EDITABLE.get(kind, ())}
+    if kind == "scene":
+        fields["bullets"] = d.get("bullets", [])
+    data = llm.complete_json(
+        f"Rewrite this part of a {company().get('name')} promo video storyboard.\n"
+        f"Instruction from the user: {instruction or 'make it punchier and clearer'}\n"
+        f"Current text (JSON): {json.dumps(fields, ensure_ascii=False)}\n"
+        "Keep the same JSON keys and roughly the same lengths (headlines stay short, voice = 1-2 spoken "
+        "sentences). Badges/numbers must stay factual – don't invent figures. Return the JSON object only.",
+        "You are a senior video copywriter.", max_tokens=1200)
+    return {k: data.get(k, v) for k, v in fields.items()}

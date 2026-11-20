@@ -23,7 +23,8 @@ from .config import env
 from .db import Connection, get_session
 
 META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "instagram_basic",
-               "instagram_content_publish", "business_management"]
+               "instagram_content_publish", "business_management",
+               "read_insights", "instagram_manage_insights"]   # reach / views on the Results page
 LINKEDIN_SCOPES = ["w_organization_social", "r_organization_social", "rw_organization_admin"]
 
 

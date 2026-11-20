@@ -1,20 +1,37 @@
 import { Link } from "react-router-dom";
 import clsx from "clsx";
-import { AlertTriangle, Check, Film, Globe, ImageIcon, Loader2, Play, ShieldCheck, Square, Trash2, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, Eye, Film, Globe, Heart, ImageIcon, Loader2, MessageCircle, Play, RotateCcw, ShieldCheck, Square, Trash2, X } from "lucide-react";
 import type { Item } from "../lib/api";
 import { displayTitle, fmtDate, pretty } from "../lib/ui";
 import { ProgressBar, StatusBadge } from "./ui";
 
-export default function ItemCard({ item, onAction, busy }: {
+export type CardAction = "approve" | "reject" | "stop" | "delete" | "restore" | "purge";
+
+export default function ItemCard({ item, onAction, busy, selecting, selected, onSelect }: {
   item: Item;
-  onAction: (id: number, action: "approve" | "reject" | "stop" | "delete") => void;
+  onAction: (id: number, action: CardAction) => void;
   busy?: boolean;
+  selecting?: boolean;
+  selected?: boolean;
+  onSelect?: (id: number) => void;
 }) {
   const generating = item.status === "generating" || item.status === "queued";
   const video = item.kind === "video";
+  const inBin = !!item.deleted_at;
+  const m = item.metrics;
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-2xl bg-white ring-1 ring-stone-200/80 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-stone-900/5">
+    <div className={clsx("group relative flex flex-col overflow-hidden rounded-2xl bg-white ring-1 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-stone-900/5",
+      selected ? "ring-2 ring-brand-600" : "ring-stone-200/80", inBin && "opacity-80")}>
+      {selecting && (
+        <button onClick={() => onSelect?.(item.id)} aria-label={selected ? "Unselect" : "Select"} aria-pressed={selected}
+          className="absolute inset-0 z-10 cursor-pointer bg-transparent">
+          <span className={clsx("absolute right-2 top-2 grid size-6 place-items-center rounded-full ring-2 sm:right-3 sm:top-3",
+            selected ? "bg-brand-600 text-white ring-white" : "bg-white/90 ring-stone-300")}>
+            {selected && <Check className="size-4" />}
+          </span>
+        </button>
+      )}
       <Link to={`/items/${item.id}`} className="relative block bg-stone-100">
         <div className={clsx("relative w-full overflow-hidden", video ? "aspect-video" : "aspect-[4/5]")}>
           {item.thumb && !generating ? (
@@ -53,7 +70,9 @@ export default function ItemCard({ item, onAction, busy }: {
 
       <div className="flex flex-1 flex-col gap-1.5 p-3 sm:gap-2 sm:p-4">
         <div className="flex min-w-0 items-center gap-2 text-[11px] text-stone-500 sm:text-xs">
-          <span className="shrink-0 font-medium text-stone-700">{fmtDate(item.date)}</span>
+          <span className={clsx("shrink-0 font-medium", item.missed ? "text-red-600" : "text-stone-700")}>
+            {fmtDate(item.date)}{item.publish_time && <> · {item.publish_time}</>}
+          </span>
           {item.source_url ? (
             <span className="inline-flex min-w-0 items-center gap-1 truncate"><Globe className="size-3 shrink-0" />{new URL(item.source_url).hostname.replace("www.", "")}</span>
           ) : item.product ? <span className="truncate">· {item.product}</span> : null}
@@ -62,7 +81,31 @@ export default function ItemCard({ item, onAction, busy }: {
           {displayTitle(item)}
         </Link>
 
-        {generating ? (
+        {item.missed && (
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-red-600">
+            <CalendarClock className="size-3.5" /> Missed its day – pick a new date
+          </div>
+        )}
+        {m && (
+          <div className="flex items-center gap-3 text-[11px] text-stone-500 sm:text-xs" title="Likes · comments · reach (all platforms)">
+            <span className="inline-flex items-center gap-1"><Heart className="size-3" />{m.likes}</span>
+            <span className="inline-flex items-center gap-1"><MessageCircle className="size-3" />{m.comments}</span>
+            {m.reach > 0 && <span className="inline-flex items-center gap-1"><Eye className="size-3" />{m.reach}</span>}
+          </div>
+        )}
+
+        {inBin ? (
+          <div className="mt-auto flex gap-2 pt-2">
+            <button disabled={busy} onClick={() => onAction(item.id, "restore")}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ink-900 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-50">
+              <RotateCcw className="size-3.5" /> Restore
+            </button>
+            <button disabled={busy} onClick={() => onAction(item.id, "purge")} title="Delete for good" aria-label="Delete for good"
+              className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-stone-500 ring-1 ring-stone-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
+        ) : generating ? (
           <div className="mt-auto space-y-1.5 pt-2">
             <ProgressBar value={item.progress} />
             <div className="flex items-center gap-2">

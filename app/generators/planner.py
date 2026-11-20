@@ -55,6 +55,11 @@ def _product_summary(product: dict | None) -> str:
     return "\n\n".join(x for x in parts if x)
 
 
+def _results_hint() -> str:
+    from .. import insights
+    return insights.planner_hint()
+
+
 def plan(day: date, kind: str, product: dict | None = None, notes: str = "") -> dict:
     """Return {source, topic, angle, hook, page_urls, context, product}.
     notes: optional instructions typed by the user in "Generate now" – they come first."""
@@ -113,6 +118,8 @@ PRODUCT TO FEATURE: {(product or {}).get('name', 'any') } — {(product or {}).g
 
 TOPICS USED RECENTLY (do not repeat): {recent or 'none'}
 
+{_results_hint()}
+
 Plan today's {kind}. If the source is 'request', build the whole piece around the user's request above
 (topic, angle and hook must follow it). If the source is 'trend', pick the ONE trending topic or news item that best connects to what
 the company offers and explain the connection. If 'website', pick one feature/service/benefit from the website.
@@ -124,7 +131,8 @@ Return JSON:
   "angle": "1-2 sentences: the idea and why the audience will care / share it",
   "hook": "scroll-stopping first line (max 10 words)",
   "trend_used": "the trend/news item used or empty",
-  "page_urls": ["https://..."]
+  "page_urls": ["https://..."]{',' if source == 'request' else ''}
+{'  "festival": "ONLY if the user asks for a festival / holiday / special-day greeting: its name (e.g. Diwali, Christmas, New Year), else empty"' if source == 'request' else ''}
 }}"""
     data = llm.complete_json(prompt, SYSTEM)
     urls = [u for u in data.get("page_urls") or [] if isinstance(u, str) and u.startswith("http")]
@@ -132,8 +140,16 @@ Return JSON:
         urls = [product["url"]] + [u for u in urls if u != product["url"]]
     if kind == "video" and not urls:
         urls = website.page_urls(company().get("website"))[:3] or [company().get("website")]
+    greeting = ""
+    if kind == "post":
+        if source == "festival" and festival:
+            greeting = festival[0]
+        elif source == "request":
+            greeting = str(data.get("festival") or "").strip()[:60]
     return {
         "source": source,
+        "festival": greeting,                                    # post = festival greeting design
+        "festive_frame": festival[0] if (festival and kind == "video" and not notes) else "",  # video opening
         "topic": data.get("topic", "")[:300],
         "angle": data.get("angle", ""),
         "hook": data.get("hook", ""),

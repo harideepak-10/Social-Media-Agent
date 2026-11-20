@@ -22,6 +22,9 @@ def _generate_tomorrow():
     except Exception:
         log.exception("festival reminder failed")
     day = pipeline.today() + timedelta(days=1)
+    if pipeline.agent_paused(day):
+        log.info("agent is paused – no content prepared for %s", day)
+        return
     log.info("scheduled generation for %s", day)
     pipeline.generate_for(day, origin="schedule")
 
@@ -46,7 +49,13 @@ def catch_up_days(now=None) -> list:
 
 def _catch_up():
     """On startup (e.g. the free server woke up): make only the content the schedule missed."""
+    try:
+        pipeline.purge_bin()
+    except Exception:
+        log.exception("emptying the bin failed")
     for day in catch_up_days():
+        if pipeline.agent_paused(day):
+            continue
         try:
             pipeline.generate_for(day, only_if_missing=True, origin="catch_up")
         except Exception:
@@ -64,6 +73,11 @@ def start() -> BackgroundScheduler:
     sch.add_job(_generate_tomorrow, CronTrigger(hour=gh, minute=gm, timezone=tz), id="generate",
                 max_instances=1, coalesce=True, misfire_grace_time=3 * 3600)
     sch.add_job(pipeline.publish_due, "interval", minutes=5, id="publish", max_instances=1, coalesce=True)
+    sch.add_job(pipeline.purge_bin, "interval", hours=6, id="bin", max_instances=1, coalesce=True)
+    from . import insights
+    sch.add_job(insights.refresh_recent, "interval", hours=6, id="metrics", max_instances=1, coalesce=True)
+    sch.add_job(insights.weekly_job, CronTrigger(day_of_week="mon", hour=8, minute=17, timezone=tz), id="insights",
+                max_instances=1, coalesce=True, misfire_grace_time=24 * 3600)
     if pipeline.video_on_pc():  # videos left half-made by a PC that went offline -> failed, so they can be retried
         from . import worker
         sch.add_job(worker.recover_stale, "interval", minutes=5, id="stale_videos", max_instances=1, coalesce=True)

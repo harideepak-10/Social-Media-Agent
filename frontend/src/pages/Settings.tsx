@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, Cpu, ExternalLink, Link2, Loader2, Music, Package, Palette, Play,
-  Plus, RefreshCw, Trash2, Upload, Volume2, XCircle,
+  AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, Cpu, ExternalLink, Link2, Loader2, Music, Package, Palette, Play, Plus, RefreshCw, Trash2, Upload, Volume2, Wand2, XCircle,
 } from "lucide-react";
 import { api, type HealthCheck, type Product, type Settings as TSettings } from "../lib/api";
 import { PLATFORMS, pretty } from "../lib/ui";
@@ -27,7 +26,10 @@ export default function Settings() {
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-8 md:px-10">
-      <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Settings</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Settings</h1>
+        <Link to="/setup"><Button variant="outline" className="px-3 py-1.5 text-xs" icon={<Wand2 className="size-3.5" />}>Setup wizard</Button></Link>
+      </div>
       <p className="mt-1 text-sm text-stone-500">Everything the agent needs to know about your brand, products and style. Saved to <code className="rounded bg-stone-100 px-1">config/settings.yaml</code>.</p>
 
       <div className="-mx-5 mt-6 flex gap-1.5 overflow-x-auto px-5 [scrollbar-width:none] sm:mx-0 sm:inline-flex sm:flex-wrap sm:gap-1 sm:rounded-xl sm:bg-white sm:p-1 sm:ring-1 sm:ring-stone-200/80">
@@ -390,7 +392,7 @@ function StatusTab({ s }: { s: TSettings }) {
   const health = useQuery({ queryKey: ["health", full], queryFn: () => api.health(full), staleTime: 60000 });
   const counts = useMemo(() => {
     const c = { ok: 0, warn: 0, fail: 0 };
-    health.data?.checks.forEach((x) => c[x.status]++);
+    (health.data?.checks ?? []).forEach((x) => c[x.status]++);
     return c;
   }, [health.data]);
   const e = s.engine;
@@ -420,7 +422,7 @@ function StatusTab({ s }: { s: TSettings }) {
               {counts.fail > 0 && <span className="rounded-full bg-red-50 px-2.5 py-1 text-red-700">{counts.fail} to fix</span>}
             </div>
             <ul className="mt-4 divide-y divide-stone-100">
-              {health.data?.checks.map((c) => <CheckRow key={c.name} c={c} />)}
+              {(health.data?.checks ?? []).map((c) => <CheckRow key={c.name} c={c} />)}
             </ul>
           </>
         )}
@@ -452,7 +454,7 @@ function StatusTab({ s }: { s: TSettings }) {
             <dt className="text-stone-500">Provider</dt><dd className="font-medium capitalize">{e.llm_provider} {e.anthropic_key ? "" : <span className="text-red-600">(no key)</span>}</dd>
             <dt className="text-stone-500">Writing</dt><dd className="font-mono text-xs leading-5">{e.model}</dd>
             <dt className="text-stone-500">Design</dt><dd className="font-mono text-xs leading-5">{e.design_model}</dd>
-            <dt className="text-stone-500">AI photos</dt><dd className="font-medium">{e.image_provider === "none" ? "Off (drawn with CSS/SVG)" : pretty(e.image_provider)}</dd>
+            <dt className="text-stone-500">AI photos</dt><dd className="font-medium">{e.image_provider === "none" ? "Off (festivals use illustrated scenes)" : pretty(e.image_provider)}</dd>
             <dt className="text-stone-500">Voice</dt><dd className="font-medium">{e.tts_provider === "edge" ? "Edge neural voices (free)" : pretty(e.tts_provider)}</dd>
           </dl>
           <p className="mt-4 text-xs text-stone-500">Change these in <code className="rounded bg-stone-100 px-1">.env</code> – keys never leave your PC.</p>

@@ -152,6 +152,17 @@ function MonthCalendar() {
   const [eventFor, setEventFor] = useState<string | null>(null);
   const today = todayIso();
   const [picked, setPicked] = useState<string>(today);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const move = useMutation({
+    mutationFn: ({ id, date }: { id: number; date: string }) => api.update(id, { date }),
+    onSuccess: (d) => {
+      toast("ok", `Moved to ${fmtDate(d.date, { weekday: "short", day: "numeric", month: "short" })}`);
+      ["calendar", "items", "meta"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      qc.invalidateQueries({ queryKey: ["item", d.id] });
+    },
+    onError: (e: Error) => toast("error", e.message),
+  });
   const pickedDay = data?.days.find((d) => d.date === picked) ?? null;
 
   return (
@@ -174,24 +185,30 @@ function MonthCalendar() {
         {(data?.days ?? Array.from({ length: 35 }, () => null)).map((day, i) =>
           day ? (
             <Fragment key={day.date}>
-              <DayCell day={day} today={today} onAdd={() => setEventFor(day.date)} />
+              <DayCell day={day} today={today} onAdd={() => setEventFor(day.date)} onMove={(id) => move.mutate({ id, date: day.date })} />
               <MiniDay day={day} today={today} selected={day.date === picked} onPick={() => setPicked(day.date)} />
             </Fragment>
           ) : <div key={i} className="shimmer h-14 bg-white md:h-32" />)}
       </div>
       {pickedDay && <DayDetails day={pickedDay} today={today} onAdd={() => setEventFor(pickedDay.date)} />}
+      <p className="mt-2 hidden text-xs text-stone-400 md:block">Tip: drag a post or video thumbnail onto another day to move it.</p>
       <EventModal open={!!eventFor} initial={eventFor ? { date: eventFor, title: "", details: "", remind_days_before: 0 } : null}
         onClose={() => setEventFor(null)} />
     </Card>
   );
 }
 
-function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () => void }) {
+function DayCell({ day, today, onAdd, onMove }: { day: CalDay; today: string; onAdd: () => void; onMove: (id: number) => void }) {
   const isToday = day.date === today;
   const past = day.date < today;
   const n = Number(day.date.slice(8));
+  const [over, setOver] = useState(false);
   return (
-    <div className={clsx("group relative hidden min-h-32 flex-col gap-1 bg-white p-2 md:flex", !day.in_month && "bg-stone-50/80", past && "opacity-60")}>
+    <div className={clsx("group relative hidden min-h-32 flex-col gap-1 bg-white p-2 md:flex", !day.in_month && "bg-stone-50/80", past && "opacity-60",
+      over && "bg-brand-50 ring-2 ring-inset ring-brand-500")}
+      onDragOver={(e) => { if (!past && e.dataTransfer.types.includes("text/x-item")) { e.preventDefault(); setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); const id = Number(e.dataTransfer.getData("text/x-item")); if (id && !day.items.some((i) => i.id === id)) onMove(id); }}>
       <div className="flex items-center justify-between">
         <span className={clsx("grid size-6 place-items-center rounded-full text-xs font-bold",
           isToday ? "bg-brand-600 text-white" : day.in_month ? "text-stone-800" : "text-stone-400")}>{n}</span>
@@ -215,8 +232,9 @@ function DayCell({ day, today, onAdd }: { day: CalDay; today: string; onAdd: () 
       ))}
       <div className="mt-auto flex flex-wrap gap-1">
         {day.items.map((it) => (
-          <Link key={it.id} to={`/items/${it.id}`} title={it.topic}
-            className="relative size-8 overflow-hidden rounded-md bg-stone-100 ring-1 ring-stone-200 hover:ring-2 hover:ring-ink-900">
+          <Link key={it.id} to={`/items/${it.id}`} title={`${it.topic}${it.publish_time ? ` · ${it.publish_time}` : ""}${it.movable ? " – drag to another day to move it" : ""}`}
+            draggable={it.movable} onDragStart={(e) => { e.dataTransfer.setData("text/x-item", String(it.id)); e.dataTransfer.effectAllowed = "move"; }}
+            className={clsx("relative size-8 overflow-hidden rounded-md bg-stone-100 ring-1 ring-stone-200 hover:ring-2 hover:ring-ink-900", it.movable && "cursor-grab active:cursor-grabbing")}>
             {it.thumb ? <img src={it.thumb} alt="" className="size-full object-cover" /> :
               <span className="grid size-full place-items-center text-stone-400">{it.kind === "video" ? <Film className="size-3.5" /> : <ImageIcon className="size-3.5" />}</span>}
             <span className={clsx("absolute bottom-0.5 right-0.5 size-2 rounded-full ring-1 ring-white", STATUS[it.status]?.dot)} />

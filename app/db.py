@@ -77,6 +77,10 @@ class ContentItem(Base):
     quality_json: Mapped[str] = mapped_column(Text, default="")      # AI + technical quality check of the result
     origin: Mapped[str] = mapped_column(String(20), default="")      # schedule | catch_up | manual | regenerate | url
     worker: Mapped[str] = mapped_column(String(80), default="")      # which machine is making it ("server" or the PC's name)
+    publish_time: Mapped[str] = mapped_column(String(5), default="")  # "HH:MM" for this item; "" = the default publish time
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # in the bin (restorable for 7 days)
+    metrics_json: Mapped[str] = mapped_column(Text, default="")      # likes/comments/reach per platform after posting
+    job: Mapped[str] = mapped_column(String(20), default="")         # pending special job, e.g. "rebuild" (edited video)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -107,6 +111,17 @@ class ContentItem(Base):
     @quality.setter
     def quality(self, value: dict) -> None:
         self.quality_json = json.dumps(value, ensure_ascii=False)
+
+    @property
+    def metrics(self) -> dict:
+        try:
+            return json.loads(self.metrics_json or "{}")
+        except ValueError:
+            return {}
+
+    @metrics.setter
+    def metrics(self, value: dict) -> None:
+        self.metrics_json = json.dumps(value, ensure_ascii=False)
 
     @property
     def platform_list(self) -> list[str]:
@@ -168,6 +183,16 @@ class WorkerStatus(Base):
     info: Mapped[str] = mapped_column(Text, default="")
 
 
+class InsightSummary(Base):
+    """AI-written 'what worked best' from real post results (newest one is used by the planner)."""
+    __tablename__ = "insight_summaries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    days: Mapped[int] = mapped_column(Integer, default=30)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    tips: Mapped[str] = mapped_column(Text, default="")   # short guidance for the planner
+
+
 class StoredFile(Base):
     """Copies of config/*.yaml kept in the cloud database, so dashboard edits survive restarts."""
     __tablename__ = "stored_files"
@@ -193,7 +218,9 @@ def init_db() -> None:
                           ("product", "VARCHAR(100) DEFAULT ''"), ("media_alt_path", "VARCHAR(500) DEFAULT ''"),
                           ("stage", "VARCHAR(200) DEFAULT ''"), ("progress", "INTEGER DEFAULT 0"),
                           ("quality_json", "TEXT DEFAULT ''"), ("origin", "VARCHAR(20) DEFAULT ''"),
-                          ("worker", "VARCHAR(80) DEFAULT ''")):
+                          ("worker", "VARCHAR(80) DEFAULT ''"), ("publish_time", "VARCHAR(5) DEFAULT ''"),
+                          ("deleted_at", "TIMESTAMP NULL"), ("metrics_json", "TEXT DEFAULT ''"),
+                          ("job", "VARCHAR(20) DEFAULT ''")):
             if name not in cols:
                 conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {name} {ddl}"))
     if is_cloud_db():

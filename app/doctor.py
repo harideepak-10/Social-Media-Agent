@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import importlib
 import sys
+import threading
 import time
 
 OK, WARN, FAIL = "✅", "⚠️ ", "❌"
@@ -24,15 +25,21 @@ def _line(icon: str, name: str, detail: str = "") -> str:
     return icon
 
 
+_checks_lock = threading.Lock()
+
+
 def checks(full: bool = False) -> list[dict]:
-    """Same checks as `cli.py doctor`, returned as [{name, status: ok|warn|fail, detail}] for the dashboard."""
+    """Same checks as `cli.py doctor`, returned as [{name, status: ok|warn|fail, detail}] for the dashboard.
+    One at a time: the results are collected in module state, and a quick + full check running together
+    would wipe each other's list (the dashboard then got `checks: null`)."""
     global _collected, _quiet
-    _collected, _quiet = [], True
-    try:
-        _run(full)
-        return _collected
-    finally:
-        _collected, _quiet = None, False
+    with _checks_lock:
+        _collected, _quiet = [], True
+        try:
+            _run(full)
+            return list(_collected)
+        finally:
+            _collected, _quiet = None, False
 
 
 def run(full: bool = True) -> bool:

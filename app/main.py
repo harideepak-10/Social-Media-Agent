@@ -17,6 +17,8 @@ from sqlalchemy import select
 
 from . import pipeline, publishers, scheduler
 from .api import router as api_router
+from .api_edit import router as edit_router
+from .api_setup import router as setup_router
 from .api_settings import public as brand_router
 from .api_settings import router as settings_router
 from .api_occasions import router as occasions_router
@@ -52,6 +54,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Digital Marketing Agent", lifespan=lifespan)
 # media must stay public: Instagram fetches images/videos from here
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+app.include_router(edit_router)   # before api_router: its /items/{id}/{action} would swallow these paths
+app.include_router(setup_router)
 app.include_router(api_router)
 app.include_router(settings_router)
 app.include_router(occasions_router)
@@ -90,7 +94,8 @@ def dashboard(request: Request, _: str = Depends(auth)):
         week.append({"date": d, "kind": planner.kind_for(d), "festivals": calendar.festivals_on(d),
                      "event": calendar.company_event(d)})
     with get_session() as s:
-        items = s.scalars(select(ContentItem).order_by(ContentItem.run_date.desc(), ContentItem.id.desc()).limit(60)).all()
+        items = s.scalars(select(ContentItem).where(ContentItem.deleted_at.is_(None))
+                          .order_by(ContentItem.run_date.desc(), ContentItem.id.desc()).limit(60)).all()
     return templates.TemplateResponse(request, "dashboard.html", {
         "week": week, "items": items, "platforms": publishers.status(),
         "upcoming": calendar.next_festivals(today, 45), "settings": settings(), "weekdays": WEEKDAYS,
@@ -208,8 +213,12 @@ if (FRONTEND_DIST / "index.html").exists():
             raise HTTPException(404)
         f = FRONTEND_DIST / path
         if path and f.is_file() and FRONTEND_DIST in f.resolve().parents:
+            if path in ("sw.js", "manifest.webmanifest"):  # must update right away when a new version is deployed
+                media = "application/manifest+json" if path.endswith(".webmanifest") else "text/javascript"
+                return FileResponse(f, media_type=media, headers={"Cache-Control": "no-cache"})
             return FileResponse(f)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        # the app shell itself is never cached long, so a deploy shows up on the next open
+        return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})
 else:
     @app.get("/", include_in_schema=False)
     def root():

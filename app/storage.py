@@ -19,9 +19,10 @@ POSTERS_DIR = MEDIA_DIR / "posters"
 POSTER_SOURCES_DIR = POSTERS_DIR / "source"
 VIDEOS_DIR = MEDIA_DIR / "videos"
 THUMBS_DIR = MEDIA_DIR / "thumbnails"
+VIDEO_SOURCES_DIR = VIDEOS_DIR / "source"   # per video: storyboard.json + the captured screens (for scene edits)
 WORK_DIR = MEDIA_DIR / ".work"
 
-for _d in (POSTERS_DIR, POSTER_SOURCES_DIR, VIDEOS_DIR, THUMBS_DIR, WORK_DIR):
+for _d in (POSTERS_DIR, POSTER_SOURCES_DIR, VIDEOS_DIR, VIDEO_SOURCES_DIR, THUMBS_DIR, WORK_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -245,8 +246,13 @@ def delete_media(ref: str | None) -> None:
                 base, bucket, h = _sb()
                 _httpx.request("DELETE", f"{base}/storage/v1/object/{bucket}", headers=h,
                                json={"prefixes": keys}, timeout=60)
-            cached = WORK_DIR / "downloads" / ref.split("/storage/v1/object/public/", 1)[-1].split("/", 1)[-1]
-            cached.unlink(missing_ok=True)
+            key = ref.split("/storage/v1/object/public/", 1)[-1].split("/", 1)[-1].split("?", 1)[0]
+            (WORK_DIR / "downloads" / key).unlink(missing_ok=True)
+            local = MEDIA_DIR / key  # the copy made before uploading (e.g. on the PC worker)
+            if local.is_file():
+                local.unlink()
+                if key.startswith("posters/") and not key.startswith("posters/source/"):
+                    (MEDIA_DIR / poster_source_key(key)).unlink(missing_ok=True)
         else:
             p = Path(ref)
             if p.is_file() and MEDIA_DIR.resolve() in p.resolve().parents:  # never delete outside media/
@@ -255,6 +261,77 @@ def delete_media(ref: str | None) -> None:
                     poster_source_path(p).unlink(missing_ok=True)
     except Exception as e:  # deleting files is best effort – the item is removed anyway
         _log.warning("could not delete %s: %s", ref, e)
+
+
+# ── source files next to the media (poster HTML, video storyboard) ─────────
+def ref_stem(ref: str | Path) -> str:
+    """File stem of a local path or a public URL (query string ignored)."""
+    return Path(str(ref).split("?", 1)[0]).stem
+
+
+def media_ref_for(key: str, like: str | None) -> str:
+    """Where `key` (relative to media/) lives, in the same place as the reference `like` (cloud or local)."""
+    if is_url(like) and remote_enabled():
+        return remote_url(key)
+    return str(MEDIA_DIR / key)
+
+
+def save_file(local: Path, key: str, like: str | None = None) -> str:
+    """Store a local file under media/<key> – also uploaded when the media lives in the cloud."""
+    dest = MEDIA_DIR / key
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if local.resolve() != dest.resolve():
+        import shutil
+        shutil.copy(local, dest)
+    (WORK_DIR / "downloads" / key).unlink(missing_ok=True)  # never serve an outdated cached copy
+    if remote_enabled() and (like is None or is_url(like)):
+        try:
+            return upload(dest, key)
+        except Exception as e:
+            _log.warning("upload of %s failed, keeping it local: %s", key, e)
+    return str(dest)
+
+
+def poster_source_key(poster_ref: str) -> str:
+    return f"posters/source/{ref_stem(poster_ref)}.html"
+
+
+def video_source_prefix(video_ref: str) -> str:
+    base = re.sub(r"_(16x9|9x16|1x1)$", "", ref_stem(video_ref))
+    return f"videos/source/{base}"
+
+
+def read_text_ref(ref: str) -> str | None:
+    """Read a small text file (design / storyboard) – always fresh from the cloud, never from the cache."""
+    try:
+        if is_url(ref):
+            key = str(ref).split("/storage/v1/object/public/", 1)[-1].split("/", 1)[-1].split("?", 1)[0]
+            (WORK_DIR / "downloads" / key).unlink(missing_ok=True)
+        p = local_file(ref) if is_url(ref) else Path(ref)
+        return p.read_text(encoding="utf-8") if p.exists() else None
+    except Exception as e:
+        _log.info("could not read %s: %s", ref, e)
+        return None
+
+
+def next_version(stem: str) -> str:
+    """2026-11-18_pos_myth-fact_12 -> ..._12_v2 -> ..._12_v3 (a new file name busts every cache)."""
+    m = re.match(r"^(.*)_v(\d+)$", stem)
+    return f"{m.group(1)}_v{int(m.group(2)) + 1}" if m else f"{stem}_v2"
+
+
+def delete_video_source(video_ref: str) -> None:
+    prefix = video_source_prefix(video_ref)
+    try:
+        if is_url(video_ref) and remote_enabled():
+            keys = list_remote(prefix)
+            if keys:
+                base, bucket, h = _sb()
+                _httpx.request("DELETE", f"{base}/storage/v1/object/{bucket}", headers=h, json={"prefixes": keys}, timeout=60)
+        import shutil
+        shutil.rmtree(MEDIA_DIR / prefix, ignore_errors=True)
+    except Exception as e:
+        _log.warning("could not delete video source %s: %s", prefix, e)
 
 
 def is_url(ref: str | None) -> bool:

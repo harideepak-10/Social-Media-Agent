@@ -29,6 +29,26 @@ def today() -> date:
     return datetime.now(tz()).date()
 
 
+def agent_state() -> dict:
+    """Pause switch (settings.yaml → agent: {paused, paused_until}). paused_until is the last paused day."""
+    a = settings().get("agent") or {}
+    until = str(a.get("paused_until") or "")
+    return {"paused": bool(a.get("paused")), "paused_until": until}
+
+
+def agent_paused(day: date | None = None) -> bool:
+    """True if automatic generating/posting is off for `day` (default: today)."""
+    st = agent_state()
+    if not st["paused"]:
+        return False
+    if st["paused_until"]:
+        try:
+            return (day or today()) <= date.fromisoformat(st["paused_until"])
+        except ValueError:
+            return True
+    return True
+
+
 def video_on_pc() -> bool:
     """VIDEO_RENDERER=pc (set on small servers): videos are queued and made by the PC worker (cli.py worker)."""
     return env("VIDEO_RENDERER", "").strip().lower() == "pc"
@@ -64,7 +84,7 @@ def generate_for(day: date, kind: str | None = None, force: bool = False,
     with get_session() as s:
         # Automatic runs make at most ONE item per day (any kind, even if it failed or was rejected/stopped).
         # "Generate now" / Regenerate pass force=True and always make a new one.
-        existing = s.scalars(select(ContentItem).where(ContentItem.run_date == day,
+        existing = s.scalars(select(ContentItem).where(ContentItem.run_date == day, ContentItem.deleted_at.is_(None),
                                                        ContentItem.source_url == "")).first()
         if existing and not force:
             log.info("%s: already has an item (#%s, %s) – automatic runs make one per day", day, existing.id, existing.status)
@@ -166,9 +186,39 @@ def recover_interrupted() -> int:
                     else "")
             it.error = (f"The server restarted while this was being made (stopped at {it.progress}%: "
                         f"{it.stage or 'starting'}).{hint}")[:2000]
-            it.status, it.stage = "failed", ""
+            if it.job == "rebuild" and it.media_path:  # previous version is still there
+                it.status, it.stage, it.job = "pending_approval", "", ""
+                it.error = "The server restarted while rebuilding your edit – the previous version is kept."
+                continue
+            it.status, it.stage, it.job = "failed", "", ""
         s.commit()
         return len(items)
+
+
+BIN_DAYS = 7
+
+
+def purge_bin(days: int = BIN_DAYS) -> int:
+    """Delete for good what has been in the bin longer than `days` (files too)."""
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    with get_session() as s:
+        old = s.scalars(select(ContentItem).where(ContentItem.deleted_at.is_not(None),
+                                                  ContentItem.deleted_at < cutoff)).all()
+        for item in old:
+            delete_files(item)
+            s.delete(item)
+        s.commit()
+    if old:
+        log.info("emptied %s item(s) from the bin", len(old))
+    return len(old)
+
+
+def delete_files(item: ContentItem) -> None:
+    for ref in {item.media_path, item.media_alt_path, item.thumb_path}:
+        storage.delete_media(ref)
+    if item.kind == "video" and item.media_path:  # the editable storyboard + screens kept for video edits
+        storage.delete_video_source(item.media_path)
 
 
 def _stopped(item_id: int) -> ContentItem | None:
@@ -186,7 +236,24 @@ def _persist_media(gen: dict) -> tuple[str, str]:
         progress.report("Saving files", 98)
     media = storage.persist(gen["media"])
     thumb = media if str(gen.get("thumb")) == str(gen.get("media")) else storage.persist(gen.get("thumb"))
+    _persist_sources(gen, media)
     return media, thumb
+
+
+def _persist_sources(gen: dict, media_ref: str) -> None:
+    """Keep what's needed to edit the piece later: a poster's HTML design, a video's storyboard + screens."""
+    try:
+        src = Path(gen["media"]).parent / "source" / f"{Path(gen['media']).stem}.html"
+        if src.exists():
+            storage.save_file(src, storage.poster_source_key(str(gen["media"])), like=media_ref)
+        vsrc = gen.get("video_source")  # local folder with storyboard.json + screens (video_studio)
+        if vsrc and Path(vsrc).is_dir():
+            prefix = storage.video_source_prefix(str(gen["media"]))
+            for f in Path(vsrc).iterdir():
+                storage.save_file(f, f"{prefix}/{f.name}", like=media_ref)
+            shutil.rmtree(vsrc, ignore_errors=True)
+    except Exception as e:  # editing is a bonus – never fail the item for it
+        log.warning("could not store the editable source: %s", e)
 
 
 def _save_creative(item: ContentItem, gen: dict) -> None:
@@ -327,14 +394,24 @@ def publish_item(item_id: int) -> ContentItem:
 
 
 def publish_due() -> list[int]:
-    """Publish approved items whose day has come and publish_time has passed."""
+    """Publish approved items whose day has come and whose time (own publish_time, else the default) has passed.
+    Only today's and yesterday's items (yesterday = the server was asleep at posting time); older approved
+    items are 'missed' and wait for a new date instead of all going out at once. Nothing while paused."""
+    from datetime import timedelta
     now = datetime.now(tz())
-    hh, mm = map(int, settings().get("publish_time", "10:00").split(":"))
+    if agent_paused(now.date()):
+        return []
+    default = settings().get("publish_time", "10:00")
     done = []
     with get_session() as s:
-        due = s.scalars(select(ContentItem).where(ContentItem.status == "approved",
-                                                  ContentItem.run_date <= now.date())).all()
-        ids = [i.id for i in due if i.run_date < now.date() or (now.hour, now.minute) >= (hh, mm)]
+        due = s.scalars(select(ContentItem).where(ContentItem.status == "approved", ContentItem.deleted_at.is_(None),
+                                                  ContentItem.run_date <= now.date(),
+                                                  ContentItem.run_date >= now.date() - timedelta(days=1))).all()
+        ids = []
+        for i in due:
+            hh, mm = map(int, (i.publish_time or default).split(":"))
+            if i.run_date < now.date() or (now.hour, now.minute) >= (hh, mm):
+                ids.append(i.id)
     for item_id in ids:
         publish_item(item_id)
         done.append(item_id)

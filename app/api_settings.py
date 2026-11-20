@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from . import auth, publishers, scheduler, storage
 from .config import ASSETS_DIR, CACHE_DIR, MEDIA_DIR, WEEKDAYS, env, events_config, settings, update_yaml
+from .creative import assets, rotation
 from .creative.catalog import POST_FORMATS, POST_THEMES, VIDEO_THEMES
 from .db import ContentItem, get_session
 from .generators import planner
@@ -111,12 +112,13 @@ def month_calendar(month: str | None = None, _: str = User):
     end = last + timedelta(days=6 - last.weekday())
     with get_session() as s:
         rows = s.scalars(select(ContentItem).where(ContentItem.run_date.between(start, end),
-                                                   ContentItem.status != "rejected")).all()
+                                                   ContentItem.status != "rejected", ContentItem.deleted_at.is_(None))).all()
     by_day: dict[date, list] = {}
     for i in rows:
         by_day.setdefault(i.run_date, []).append(
             {"id": i.id, "kind": i.kind, "status": i.status, "topic": i.topic, "source_url": i.source_url,
-             "thumb": _media_url(i.thumb_path)})
+             "thumb": _media_url(i.thumb_path), "publish_time": i.publish_time or "",
+             "movable": i.status in ("pending_approval", "approved", "failed", "partial")})
     events = _events()
     from . import occasions
     occ_by_day: dict[str, list] = {}
@@ -212,7 +214,9 @@ def get_settings(_: str = User):
         "company": s.get("company") or {},
         "products": s.get("products") or [],
         "video": s.get("video") or {},
-        "post": s.get("post") or {},
+        "post": {**(s.get("post") or {}), **({"formats": rotation.allowed("formats", POST_FORMATS),
+                                               "themes": rotation.allowed("themes", POST_THEMES)}
+                                              if (s.get("post") or {}).get("formats") else {})},
         "creative": s.get("creative") or {},
         "catalog": {
             "post_formats": [{"id": k, "label": v["label"], "needs": sorted(v["needs"])} for k, v in POST_FORMATS.items()],
@@ -226,7 +230,7 @@ def get_settings(_: str = User):
             "llm_provider": env("LLM_PROVIDER", "anthropic"),
             "model": env("ANTHROPIC_MODEL", "claude-haiku-4-5"),
             "design_model": env("ANTHROPIC_DESIGN_MODEL", env("ANTHROPIC_MODEL", "claude-haiku-4-5")),
-            "image_provider": env("IMAGE_PROVIDER", "none"),
+            "image_provider": assets.image_provider() or "none",
             "tts_provider": env("TTS_PROVIDER", "edge"),
             "anthropic_key": bool(env("ANTHROPIC_API_KEY")),
         },
@@ -249,7 +253,7 @@ class SettingsIn(BaseModel):
 COMPANY_READONLY = {"logo_path"}
 COMPANY_KEYS = {"name", "tagline", "website", "industry", "audience", "tone", "call_to_action", "brand_colors"}
 VIDEO_KEYS = {"formats", "max_seconds", "fps", "voiceover", "voice", "background_music", "themes"}
-POST_KEYS = {"self_review", "formats", "themes"}
+POST_KEYS = {"self_review", "formats", "themes", "catalog_version"}
 
 
 @router.put("/settings")
@@ -290,6 +294,8 @@ def put_settings(body: SettingsIn, _: str = User):
             raise HTTPException(400, "keep at least 3 valid post formats so posts don't repeat")
         if "themes" in p and (len(p["themes"]) < 2 or set(p["themes"]) - set(POST_THEMES)):
             raise HTTPException(400, "keep at least 2 valid post themes")
+        if "formats" in p or "themes" in p:
+            p["catalog_version"] = 2
         patch["post"] = p
     if patch:
         update_yaml("settings.yaml", patch, replace_keys=("products",))

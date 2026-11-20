@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Download, E
 import { api, type ItemDetail as TItem, type Platform } from "../lib/api";
 import { ORIGIN, PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel, workerText } from "../lib/ui";
 import { Button, Card, Chip, Confirm, ProgressBar, StatusBadge, useToast } from "../components/ui";
+import { EditBar, MetricsCard, PlatformPreview, ScheduleCard } from "../components/ItemExtras";
 
 type Action = "approve" | "reject" | "regenerate" | "publish" | "stop" | "check";
 
@@ -61,9 +62,17 @@ export default function ItemDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["items"] });
       qc.invalidateQueries({ queryKey: ["meta"] });
-      toast("ok", "Deleted");
+      toast("ok", "Moved to the bin – kept for 7 days", { label: "Undo", onClick: () => api.restore(id).then(() => {
+        qc.invalidateQueries({ queryKey: ["items"] }); qc.invalidateQueries({ queryKey: ["meta"] }); qc.invalidateQueries({ queryKey: ["item", id] });
+      }) });
       nav("/");
     },
+    onError: (e: Error) => toast("error", e.message),
+  });
+
+  const restore = useMutation({
+    mutationFn: () => api.restore(id),
+    onSuccess: (d) => { refresh(d); toast("ok", "Restored"); },
     onError: (e: Error) => toast("error", e.message),
   });
 
@@ -75,7 +84,7 @@ export default function ItemDetail() {
     onSuccess: (d, a) => {
       refresh(d);
       const msg: Record<Action, string> = {
-        approve: `Approved – goes out ${fmtDate(d.date)} at ${meta?.times.publish ?? "publish time"}`,
+        approve: `Approved – goes out ${fmtDate(d.date)} at ${d.publish_time || meta?.times.publish || "posting time"}`,
         reject: "Rejected",
         regenerate: d.source_url ? "Regenerating from the same link…" : "Making a fresh version – it will appear in the queue",
         publish: "Publishing now…",
@@ -159,9 +168,18 @@ export default function ItemDetail() {
       </div>
 
       {/* banners */}
-      {item.status === "approved" && (
+      {item.deleted_at && (
+        <Banner tone="warn" icon={<Trash2 className="size-4" />}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>This item is in the bin and is deleted for good 7 days after it was deleted.</span>
+            <Button variant="dark" className="px-3 py-1.5 text-xs" loading={restore.isPending} onClick={() => restore.mutate()}>Restore</Button>
+          </div>
+        </Banner>
+      )}
+      {item.status === "approved" && !item.missed && (
         <Banner tone="ok" icon={<CheckCircle2 className="size-4" />}>
-          Approved. It will be {meta && Object.values(meta.platforms).some(Boolean) ? "posted" : "marked as published (test mode)"} on {fmtDate(item.date)} at {meta?.times.publish}.
+          Approved. It will be {meta && Object.values(meta.platforms).some(Boolean) ? "posted" : "marked as published (test mode)"} on {fmtDate(item.date)} at {item.publish_time || meta?.times.publish}
+          {meta?.agent?.paused && " – but the agent is paused, so it waits until you resume"}.
         </Banner>
       )}
       {item.status === "failed" && (
@@ -203,12 +221,17 @@ export default function ItemDetail() {
           {/* preview */}
           <div className="space-y-6">
             <Preview item={item} />
+            <EditBar item={item} />
             <QualityCard item={item} checking={act.isPending && act.variables === "check"} onCheck={() => act.mutate("check")} />
             <Details item={item} />
           </div>
 
           {/* captions */}
           <div className="space-y-6">
+            <MetricsCard item={item} />
+            {["pending_approval", "approved", "failed", "rejected", "partial"].includes(item.status) && !item.deleted_at && (
+              <ScheduleCard item={item} defaultTime={meta?.times.publish} />
+            )}
             <Card className="p-5">
               <div className="flex items-center justify-between">
                 <h2 className="font-bold">Post to</h2>
@@ -280,6 +303,8 @@ export default function ItemDetail() {
               <TagInput tags={tags} onChange={setTags} disabled={!editable} />
               <p className="mt-2 text-xs text-stone-400">Added to each caption if missing. LinkedIn uses the first 5.</p>
             </Card>
+
+            {item.media && platforms.length > 0 && <PlatformPreview item={{ ...item, platforms }} captions={captions} tags={tags} />}
 
             {editable && (
               <div className={clsx(dirty && "sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-4", "flex items-center justify-between gap-3 rounded-2xl px-5 py-3 shadow-lg ring-1 transition",

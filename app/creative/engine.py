@@ -11,7 +11,7 @@ from ..config import settings
 from ..generators import post as simple_post
 from ..generators import video as simple_video
 from .. import progress
-from . import assets, post_designer, rotation, video_studio, visuals
+from . import assets, festive, post_designer, rotation, video_studio, visuals
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,12 @@ def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True) -> 
 
 def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool) -> dict:
     source = plan["source"]
+    if source == "festival" or plan.get("festival"):
+        # festival greetings use the dedicated designer (photo or illustrated scene + script lettering)
+        progress.report("Format: festival greeting", 12)
+        gen = festive.generate(plan, day, item_id, product, own)
+        gen.update(alt=None)
+        return gen
     available = set()
     if product:
         available.add("product")

@@ -55,6 +55,17 @@ Open <http://localhost:8000> and log in with `DASHBOARD_USER` / `DASHBOARD_PASSW
   - Approve, Reject, Regenerate, Publish now, Stop (while generating) and Delete (rejected/failed).
   - **AI quality check:** every new post/video is checked before it reaches you – size, blank frames, video length and sound, caption limits, plus the AI looking at the poster or video frames with the captions (score out of 10 and a list of problems). Use **Check again** any time.
   - While an item is generating, you see a live progress bar and the current step, e.g. "Rendering 9:16 video – 64%".
+- **Edit without regenerating:**
+  - **Posts – Edit text:** change any text on the poster; it re-renders in ~10 s with the same design (new file version, old one removed).
+  - **Videos – Edit scenes:** change headlines and voice-over per scene, let the AI rewrite a scene, or pick another voice; the video is rebuilt (on your PC when `VIDEO_RENDERER=pc`). The previous version stays until the new one is ready.
+- **How it will look:** previews of the post as an Instagram, LinkedIn and Facebook post, cut where each app shows "… more".
+- **When it goes out:** move an item to another day or give it its own posting time (item page, or drag its thumbnail in the calendar). Approved items whose day passed are marked **missed** and wait for a new date instead of going out late.
+- **Select & bulk actions:** select several cards to approve, reject, delete, restore or delete for good in one go.
+- **Bin:** deleting moves items to the Bin for 7 days (Undo right away, or Restore later); then they and their files are removed for good.
+- **Pause the agent:** sidebar switch (phone: top-bar button). Stops the evening preparation and automatic posting – until you resume or until a date. Generate now / Publish now keep working.
+- **Results:** likes, comments, shares, reach, views and clicks fetched from each platform every 6 hours after posting; totals, best posts, and averages by format, product, weekday and source. Every Monday the AI writes "what worked best" and the planner leans towards it.
+- **Setup wizard:** first-time setup (company → logo → products → schedule → connections). "Read my website" fills in the company details and suggests products. Opens by itself until finished; Settings → **Setup wizard** runs it again (e.g. for a new brand or client).
+- **Install as an app (PWA):** on a phone, open the site and choose **Install** (Android/Chrome) or **Share → Add to Home Screen** (iPhone). It opens full-screen with its own icon; updates arrive with every deploy.
 - **Create from URL:** paste any link, choose video or post, add an optional focus, and watch it being made.
 - **Schedule & calendar:**
   - Weekly plan: Video, Post or Off for each day.
@@ -111,7 +122,16 @@ API used by the UI (`app/api.py`, Bearer token from `POST /api/login`, or HTTP B
 
 **Logo.** The logo is captured automatically from krypsos.tech on the first run and saved to `assets/logo.png`. Replace it with your original transparent PNG for the best result; the agent makes the light and dark versions itself.
 
-**Optional AI photos.** Set `IMAGE_PROVIDER=openai` or `gemini` with a key to allow photo-style memes (like the cat post). Without it, the AI draws with CSS/SVG instead.
+**Festival greetings.** Approved festivals get a dedicated greeting design (logo, quote with one highlighted word,
+big gold script "Happy <Festival>", tagline) on either a photo background or a hand-drawn illustrated scene
+(lanterns & diyas for Diwali, sun & kolam for Pongal, tree & snow for Christmas, crescent & lanterns for Eid,
+tricolour for Independence/Republic Day, fireworks for New Year …). Videos made on a festival day open with a short
+animated greeting. Typing e.g. "Diwali greeting" in Generate now makes one any day.
+
+**Optional AI photos.** `IMAGE_PROVIDER=pollinations` + `POLLINATIONS_API_KEY` (free key from
+enter.pollinations.ai), or `gemini` / `openai` with their keys, gives festival posts a photo background (checked by
+the AI; it falls back to the illustrated scene if the photo has text or looks wrong) and allows photo-style memes.
+Without it, festival posts use the illustrated scenes and other posts are drawn with CSS/SVG.
 
 If the premium engine ever fails, a simpler version is made so the day isn't empty, and a warning appears on the item.
 

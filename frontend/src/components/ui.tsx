@@ -87,16 +87,17 @@ export function Confirm({ open, title, body, confirmLabel, variant = "primary", 
 }
 
 // ── Toasts ─────────────────────────────────────────────────────────────────
-type Toast = { id: number; kind: "ok" | "error"; text: string };
-const ToastCtx = createContext<(kind: Toast["kind"], text: string) => void>(() => {});
+type ToastAction = { label: string; onClick: () => void };
+type Toast = { id: number; kind: "ok" | "error"; text: string; action?: ToastAction };
+const ToastCtx = createContext<(kind: Toast["kind"], text: string, action?: ToastAction) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((kind: Toast["kind"], text: string) => {
+  const push = useCallback((kind: Toast["kind"], text: string, action?: ToastAction) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, kind, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
+    setToasts((t) => [...t, { id, kind, text, action }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 8000 : 4500);
   }, []);
   return (
     <ToastCtx.Provider value={push}>
@@ -106,6 +107,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div key={t.id} className="pointer-events-auto flex max-w-sm items-start gap-3 rounded-xl bg-ink-900 px-4 py-3 text-sm text-white shadow-xl">
             {t.kind === "ok" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-400" /> : <XCircle className="mt-0.5 size-4 shrink-0 text-red-400" />}
             <span className="flex-1">{t.text}</span>
+            {t.action && (
+              <button onClick={() => { t.action!.onClick(); setToasts((x) => x.filter((y) => y.id !== t.id)); }}
+                className="-my-0.5 shrink-0 rounded-md bg-white/15 px-2 py-0.5 text-xs font-bold text-white hover:bg-white/25">{t.action.label}</button>
+            )}
             <button onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))} className="text-white/50 hover:text-white"><X className="size-4" /></button>
           </div>
         ))}

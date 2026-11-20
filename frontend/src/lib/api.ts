@@ -29,7 +29,15 @@ export interface Item {
   origin: "" | "schedule" | "catch_up" | "manual" | "regenerate" | "url";
   created_at: string | null;
   published_at: string | null;
+  publish_time: string;          // "HH:MM" for this item, "" = default posting time
+  job: string;                   // "rebuild" while an edited video is being rebuilt
+  deleted_at: string | null;     // in the bin
+  missed: boolean;               // approved, but its day passed without posting
+  metrics: Metrics | null;
 }
+
+export interface Metrics { likes: number; comments: number; shares: number; reach: number; views: number; clicks: number; engagement?: number }
+export type PlatformMetrics = Partial<Metrics> & { fetched_at?: string; error?: string; notes?: string };
 
 export interface PublishResult { ok: boolean; dry_run?: boolean; id: string; error: string }
 
@@ -43,6 +51,8 @@ export interface QualityReport {
 
 export interface ItemDetail extends Item {
   quality_report: QualityReport | Record<string, never>;
+  metrics_detail: Partial<Record<Platform, PlatformMetrics>>;
+  editable: { poster_text: boolean; video_scenes: boolean };
   files: string[];  // where the files are saved, relative to the project folder
   angle: string;
   captions: Partial<Record<Platform, string>>;
@@ -56,11 +66,34 @@ export interface Meta {
   company: { name: string; website: string; tagline: string };
   platforms: Record<Platform, boolean>;
   products: string[];
-  counts: Partial<Record<Status, number>>;
+  counts: Partial<Record<Status | "bin" | "missed", number>>;
+  agent: AgentState;
+  setup_done: boolean;
   week: { date: string; kind: "video" | "post" | "none"; festivals: string[]; occasions?: { name: string; status: OccStatus; kind: string }[] }[];
   times: { generate: string; publish: string; timezone: string };
   video: { formats: string[]; voiceover: boolean };
   video_worker: VideoWorker;
+}
+
+export interface AgentState { paused: boolean; paused_until: string; active_today: boolean }
+
+export interface SceneTexts {
+  eyebrow?: string; headline?: string; accent?: string; sub?: string; voice?: string; cta?: string; url?: string;
+  greeting?: string; name?: string; quote?: string;
+  bullets?: { icon: string; text: string }[]; badges?: { value: string; label: string }[]; screen?: string;
+}
+export interface Storyboard {
+  board: { festive?: SceneTexts; intro?: SceneTexts; scenes: SceneTexts[]; grid?: SceneTexts & { items?: unknown[] }; outro?: SceneTexts; voice_name: string };
+  theme: string; product: string;
+}
+
+export interface InsightGroup { name: string; posts: number; avg_engagement: number; avg_reach: number }
+export interface InsightPost extends Metrics { id: number; kind: string; topic: string; format: string; theme: string; product: string; date: string; weekday: string; per_platform: Record<string, Partial<Metrics>> }
+export interface Insights {
+  days: number; published: number; measured: number; totals: Metrics & { engagement: number };
+  per_platform: Record<string, Metrics>; top: InsightPost[];
+  by_format: InsightGroup[]; by_theme: InsightGroup[]; by_product: InsightGroup[]; by_kind: InsightGroup[]; by_source: InsightGroup[]; by_weekday: InsightGroup[];
+  summary: { text: string; tips: string; created_at: string; days: number } | null;
 }
 
 export interface VideoWorker {
@@ -90,7 +123,7 @@ export interface CalEvent { id: number; date: string; title: string; details: st
 export interface CalDay {
   date: string; in_month: boolean; kind: Kind; festivals: string[]; events: CalEvent[];
   occasions: { name: string; kind: string; status: OccStatus; post_date: string; key: string }[];
-  items: { id: number; kind: "video" | "post"; status: Status; topic: string; source_url: string; thumb: string }[];
+  items: { id: number; kind: "video" | "post"; status: Status; topic: string; source_url: string; thumb: string; publish_time: string; movable: boolean }[];
 }
 
 export interface Product { name: string; url: string; description: string }
@@ -191,17 +224,40 @@ export const api = {
     request<{ token: string; user: string }>("/api/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   me: () => request<{ user: string }>("/api/me"),
   meta: () => request<Meta>("/api/meta"),
-  items: (params: { status?: string; kind?: string; q?: string; limit?: number } = {}) => {
+  items: (params: { status?: string; kind?: string; q?: string; limit?: number; bin?: boolean } = {}) => {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && qs.set(k, String(v)));
     return request<{ total: number; items: Item[] }>(`/api/items?${qs}`);
   },
   item: (id: number) => request<ItemDetail>(`/api/items/${id}`),
-  update: (id: number, body: { captions?: ItemDetail["captions"]; hashtags?: string; platforms?: Platform[] }) =>
+  update: (id: number, body: { captions?: ItemDetail["captions"]; hashtags?: string; platforms?: Platform[]; date?: string; publish_time?: string }) =>
     request<ItemDetail>(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   action: (id: number, action: "approve" | "reject" | "regenerate" | "publish" | "stop" | "check") =>
     request<ItemDetail>(`/api/items/${id}/${action}`, { method: "POST" }),
   deleteItem: (id: number) => request<{ ok: boolean }>(`/api/items/${id}`, { method: "DELETE" }),
+  deleteForever: (id: number) => request<{ ok: boolean }>(`/api/items/${id}?forever=true`, { method: "DELETE" }),
+  restore: (id: number) => request<ItemDetail>(`/api/items/${id}/restore`, { method: "POST" }),
+  emptyBin: () => request<{ deleted: number }>("/api/bin/empty", { method: "POST" }),
+  bulk: (ids: number[], action: "approve" | "reject" | "delete" | "restore" | "purge") =>
+    request<{ done: number[]; skipped: { id: number; reason: string }[] }>("/api/items/bulk", { method: "POST", body: JSON.stringify({ ids, action }) }),
+  setAgent: (paused: boolean, paused_until = "") =>
+    request<AgentState>("/api/agent", { method: "PUT", body: JSON.stringify({ paused, paused_until }) }),
+  design: (id: number) => request<{ html: string }>(`/api/items/${id}/design`),
+  saveDesign: (id: number, html: string) =>
+    request<{ item: ItemDetail; issues: string[] }>(`/api/items/${id}/design`, { method: "PUT", body: JSON.stringify({ html }) }),
+  storyboard: (id: number) => request<Storyboard>(`/api/items/${id}/storyboard`),
+  rewritePart: (id: number, part: string, instruction: string) =>
+    request<{ part: string; texts: SceneTexts }>(`/api/items/${id}/storyboard/rewrite`, { method: "POST", body: JSON.stringify({ part, instruction }) }),
+  saveStoryboard: (id: number, edits: Record<string, unknown>, voice_name: string) =>
+    request<ItemDetail>(`/api/items/${id}/storyboard`, { method: "PUT", body: JSON.stringify({ edits, voice_name }) }),
+  refreshMetrics: (id: number) => request<ItemDetail>(`/api/items/${id}/metrics`, { method: "POST" }),
+  insights: (days = 30) => request<Insights>(`/api/insights?days=${days}`),
+  refreshInsights: (days = 30) =>
+    request<{ refreshed: number; summary: Insights["summary"]; report: Insights }>(`/api/insights/refresh?days=${days}`, { method: "POST" }),
+  setupAnalyze: (website: string) =>
+    request<{ company: Settings["company"]; brand_colors: Record<string, string>; products: Product[] }>("/api/setup/analyze", { method: "POST", body: JSON.stringify({ website }) }),
+  setupFinish: () => request<{ ok: boolean }>("/api/setup/finish", { method: "POST" }),
+  setupRestart: () => request<{ ok: boolean }>("/api/setup/restart", { method: "POST" }),
   deleteRejected: () => request<{ deleted: number }>("/api/items/delete-rejected", { method: "POST" }),
   fromUrl: (url: string, kind: "video" | "post", notes: string) =>
     request<{ id: number }>("/api/from-url", { method: "POST", body: JSON.stringify({ url, kind, notes }) }),

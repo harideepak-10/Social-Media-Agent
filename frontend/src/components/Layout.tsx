@@ -1,8 +1,11 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Suspense } from "react";
+import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CalendarDays, ExternalLink, LayoutGrid, LogOut, Settings2, Sparkles } from "lucide-react";
+import { BarChart3, CalendarDays, ExternalLink, LayoutGrid, LogOut, Settings2, Sparkles } from "lucide-react";
 import { api, auth } from "../lib/api";
+import { AgentIconButton, AgentSwitch, pausedLabel } from "./Agent";
+import { InstallLink } from "./Install";
 
 export default function Layout() {
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: api.meta, refetchInterval: 15000 });
@@ -10,6 +13,8 @@ export default function Layout() {
   const running = (meta?.counts.generating ?? 0) + (meta?.counts.queued ?? 0);
   const pc = meta?.video_worker;
   const live = meta ? Object.values(meta.platforms).some(Boolean) : false;
+  const location = useLocation();
+  if (meta && meta.setup_done === false && location.pathname !== "/setup") return <Navigate to="/setup" replace />;
 
   const link = ({ isActive }: { isActive: boolean }) =>
     clsx("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
@@ -39,10 +44,15 @@ export default function Layout() {
           <NavLink to="/schedule" className={link}>
             <CalendarDays className="size-4" /> Schedule & calendar
           </NavLink>
+          <NavLink to="/results" className={link}>
+            <BarChart3 className="size-4" /> Results
+          </NavLink>
           <NavLink to="/settings" className={link}>
             <Settings2 className="size-4" /> Settings
           </NavLink>
         </nav>
+
+        <AgentSwitch />
 
         {running > 0 && (
           <div className="mt-6 rounded-lg bg-indigo-500/10 px-3 py-2.5 text-xs text-indigo-200">
@@ -66,6 +76,7 @@ export default function Layout() {
           </div>
           {meta && <div>Prepares at {meta.times.generate} · posts at {meta.times.publish}</div>}
           <a href="/classic/" className="flex items-center gap-1.5 hover:text-white"><ExternalLink className="size-3" /> Classic dashboard</a>
+          <InstallLink />
           <button onClick={() => { auth.clear(); window.dispatchEvent(new Event("dma:logout")); }}
             className="flex items-center gap-1.5 hover:text-white"><LogOut className="size-3" /> Log out</button>
         </div>
@@ -80,18 +91,22 @@ export default function Layout() {
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-sm font-bold text-white">{meta?.company.name ?? "Krypsos"}</div>
             <div className="truncate text-[11px] text-white/50">
-              {running > 0 ? <span className="text-indigo-300">● {running} generating</span> : live ? "Publishing live" : "Test mode"}
+              {meta?.agent?.paused ? <span className="text-amber-300">❚❚ {pausedLabel(meta.agent)}</span>
+                : running > 0 ? <span className="text-indigo-300">● {running} generating</span> : live ? "Publishing live" : "Test mode"}
               {pc?.mode === "pc" && <> · Video PC {pc.online ? "online" : "offline"}</>}
             </div>
           </div>
+          <AgentIconButton />
           <button onClick={() => { auth.clear(); window.dispatchEvent(new Event("dma:logout")); }} aria-label="Log out"
             className="grid size-9 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white"><LogOut className="size-4" /></button>
         </div>
         <main className="min-w-0 flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
-          <Outlet />
+          <Suspense fallback={<div className="grid h-64 place-items-center text-sm text-stone-400">Loading…</div>}>
+            <Outlet />
+          </Suspense>
         </main>
-        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-          {([["/", "Queue", LayoutGrid], ["/create", "Create", Sparkles], ["/schedule", "Schedule", CalendarDays], ["/settings", "Settings", Settings2]] as const).map(([to, label, Icon]) => (
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+          {([["/", "Queue", LayoutGrid], ["/create", "Create", Sparkles], ["/schedule", "Schedule", CalendarDays], ["/results", "Results", BarChart3], ["/settings", "Settings", Settings2]] as const).map(([to, label, Icon]) => (
             <NavLink key={to} to={to} end={to === "/"}
               className={({ isActive }) => clsx("relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-semibold", isActive ? "text-brand-700" : "text-stone-500")}>
               <Icon className="size-5" />

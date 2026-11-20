@@ -39,6 +39,17 @@ REFERENCE STYLE (the brand's own best posts):
 3) Dark tech humour: dark navy, logo top-left, handwritten-style green tagline top-right, two stacked panels
    'EXPECTATION:' (mint chip) vs 'REALITY:' (coral chip) with short funny lines, a terminal card listing red
    error rows, bottom bar with 3 icon+label pillars ('Better Developers | Smarter Solutions | Together We Build').
+4) Everyday-object metaphor: solid tomato-red background (#E04A30), giant white heavy serif headline
+   'Your receipt is ready.', a slightly rotated thermal-paper receipt with zigzag torn edges and a soft shadow:
+   centred logo + brand, dashed rules, 'ORDER: YOUR BUSINESS   TABLE: 01', monospace rows with dotted leaders
+   ('1x Custom software ........ ✓', 'Manual work ....... REMOVED', 'Late nights ....... 0'), an inverted black
+   'TOTAL  YOUR TIME BACK' box, a CSS barcode, 'THANK YOU FOR AUTOMATING WITH US' and the website. Witty, instantly
+   readable, one clever idea.
+5) Brand infographic: light mint/white with deep forest green (#0F4D3A), logo top-left, huge 'Why Choose
+   <Brand>?', a handwritten green note top-right ('Smarter Ideas. Better Solutions.' with a hand-drawn underline),
+   a realistic laptop mock showing the website UI built in CSS, 3 icon rows ('Your Goals. / Our Focus.'), an
+   'Our Services' section with 6 icon cards in a 3x2 grid, and a dark green footer band with a pill CTA
+   'Let's Build Together →'. (Only show numbers like '100+ projects' if they are on the website.)
 
 RULES
 - Canvas exactly 1080x1350. html,body {margin:0;width:1080px;height:1350px;overflow:hidden}. Safe margin ≥ 72px.
@@ -51,6 +62,9 @@ RULES
   shot1.png… (real product screenshots), ai1.png… (photos). No other external images. Fonts: Google Fonts
   <link> only for the theme fonts. No JavaScript.
 - Never invent statistics, client names, awards, testimonials or prices. Numbers inside mock UIs are fine.
+- Personality is welcome: small cartoon characters drawn in inline SVG (simple round faces, expressive eyes,
+  a laptop, a coffee mug), big emoji used as reaction stickers (Noto Color Emoji is installed), sticky notes,
+  stamps, hand-drawn arrows/underlines (SVG paths). Keep it classy — one playful element, not clutter.
 - Excellent contrast. Nothing may overflow or touch the canvas edge unintentionally. Align to a clear grid.
 - One idea per post. The headline must be fresh — never reuse a headline/hook from the 'already used' list.
 """
@@ -128,6 +142,45 @@ _CHECK_JS = """
   return [...new Set(issues)].slice(0, 12);
 }
 """
+
+
+def inline_assets(html: str, work: Path) -> str:
+    """Embed the images the design uses (logo.png, shot1.png, ai1.png …) as data: URIs, so the saved HTML
+    renders on its own later (text edits) even after the work folder is gone."""
+    import base64
+    import io
+    import re as _re
+
+    def data_uri(name: str) -> str | None:
+        f = work / name
+        if not f.is_file():
+            return None
+        raw = f.read_bytes()
+        mime = "image/png"
+        if f.suffix.lower() in (".jpg", ".jpeg"):
+            mime = "image/jpeg"
+        elif not name.startswith("logo") and len(raw) > 250_000:  # big screenshots/photos -> JPEG to keep it small
+            im = Image.open(f).convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=86)
+            raw, mime = buf.getvalue(), "image/jpeg"
+        return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+
+    cache: dict[str, str | None] = {}
+
+    def sub(m):
+        name = m.group(2)
+        if name not in cache:
+            cache[name] = data_uri(name)
+        return f"{m.group(1)}{cache[name]}{m.group(3)}" if cache[name] else m.group(0)
+
+    pattern = r"""(src=["']|url\(["']?)((?:logo|shot\d+|ai\d+)[\w-]*\.(?:png|jpe?g|webp))(["')])"""
+    return _re.sub(pattern, sub, html)
+
+
+def render_design(html: str, work: Path, out_png: Path) -> list[str]:
+    """Public wrapper for edits: render an HTML poster to a 1080×1350 PNG, return layout issues."""
+    return _render(html, work, out_png)
 
 
 def _render(html: str, work: Path, out_png: Path) -> list[str]:
@@ -217,7 +270,7 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
 
     out = storage.poster_path(day, item_id, plan, fmt)
     Image.open(preview).convert("RGB").save(out, quality=94)
-    storage.poster_source_path(out).write_text(html, encoding="utf-8")  # keep the source for edits
+    storage.poster_source_path(out).write_text(inline_assets(html, work), encoding="utf-8")  # editable later
     shutil.rmtree(work, ignore_errors=True)
     tags = [t if t.startswith("#") else f"#{t}" for t in data.get("hashtags", [])]
     design = {"headline": data.get("headline", ""), "format": fmt, "theme": theme_name,

@@ -68,6 +68,22 @@ POST_THEMES: dict[str, dict] = {
         "heading_font": "Bricolage Grotesque:800", "body_font": "DM Sans:400,600",
         "mood": "loud coral-to-amber gradient, giant tight headline, sticker-like cards and arrows",
     },
+    "receipt_red": {
+        "label": "Tomato red + paper (sample: 'Your receipt is ready')",
+        "bg": "#E04A30", "surface": "#FAF8F3", "ink": "#161412", "muted": "#5B5650",
+        "accent": "#161412", "accent2": "#FFFFFF", "logo": "dark",
+        "heading_font": "Fraunces:800,900", "body_font": "IBM Plex Mono:400,600,700",
+        "mood": "flat tomato-red background, giant white heavy serif headline, off-white paper objects (receipts, "
+                "tickets, cards) with monospace type, dotted leaders, a black inverted box, soft drop shadow",
+    },
+    "forest_mint": {
+        "label": "Forest & mint infographic (sample: 'Why choose Krypsos?')",
+        "bg": "#EEF6F1", "surface": "#FFFFFF", "ink": "#0F2E24", "muted": "#4B6358",
+        "accent": "#0F5C45", "accent2": "#7BD389", "logo": "dark",
+        "heading_font": "Plus Jakarta Sans:700,800", "body_font": "Plus Jakarta Sans:400,500,600",
+        "mood": "airy mint-white, deep forest green headline and icon circles, rounded service cards, a dark green "
+                "footer band with a mint pill button, handwritten green note with a hand-drawn underline",
+    },
 }
 
 FESTIVE_THEMES = ["midnight_violet", "navy_gold", "amber_noir", "sunset_bold"]
@@ -116,9 +132,10 @@ POST_FORMATS: dict[str, dict] = {
     "relatable_meme": {
         "label": "Relatable humour (expectation vs reality)",
         "brief": "Light, relatable humour for business owners or developers: Expectation vs Reality, "
-                 "'Monday vs Friday', 'Me before / after automation'. Two stacked panels with label chips. "
-                 "If photo images are available use them (ai1.png, ai2.png); otherwise illustrate with UI mocks, "
-                 "a terminal window of errors, sticky notes or big emoji.",
+                 "'Monday vs Friday', 'Me before / after automation', 'The client said: small change'. Two stacked "
+                 "panels with label chips, or a classic two-row meme layout. Illustrate with a simple SVG cartoon "
+                 "character (round face, expressive eyes) or big emoji reactions, UI mocks, a terminal window of "
+                 "errors or sticky notes. If photo images are available you may use them (ai1.png, ai2.png).",
         "needs": set(), "sources": {"website", "trend", "url"},
     },
     "big_statement": {
@@ -144,6 +161,23 @@ POST_FORMATS: dict[str, dict] = {
         "brief": "'Tip #N' badge, a practical, specific productivity/automation tip in 2-3 short steps, small "
                  "illustration made with CSS/SVG.",
         "needs": set(), "sources": {"website", "trend", "url"},
+    },
+    "object_metaphor": {
+        "label": "Everyday-object metaphor (receipt, ticket, menu …)",
+        "brief": "Explain the value through a familiar object rebuilt in HTML/CSS, like the 'Your receipt is ready.' "
+                 "sample: a receipt, boarding pass, restaurant menu, prescription, report card, movie ticket, recipe "
+                 "card or parking ticket. Giant headline above; the object slightly rotated with realistic details "
+                 "(zigzag edges, monospace type, dotted leaders, barcode/QR, a stamp); its lines list real services "
+                 "or benefits from the website; a punchy result line ('TOTAL: YOUR TIME BACK'). Witty but clear.",
+        "needs": set(), "sources": {"website", "trend", "url"},
+    },
+    "services_overview": {
+        "label": "'Why choose us' brand infographic",
+        "brief": "Like the 'Why Choose Krypsos?' sample: huge question headline + one-line answer, a laptop or "
+                 "phone mock showing the website UI (built in CSS, or shot1.png if provided), 3 short value rows "
+                 "with icons, an 'Our Services' grid of 6 icon cards (real services from the website), and a "
+                 "footer band with a pill CTA. Only use numbers that appear on the website.",
+        "needs": set(), "sources": {"website", "url"},
     },
     "festive_greeting": {
         "label": "Festival greeting art",

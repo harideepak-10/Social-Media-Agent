@@ -63,7 +63,11 @@ def recover_stale(minutes: int = 5) -> int:
         items = s.scalars(select(ContentItem).where(ContentItem.status == "generating",
                                                     ContentItem.worker.notin_([me, ""]))).all()
         for it in items:
-            if it.worker in known and it.worker not in alive:
+            if it.worker in known and it.worker not in alive and it.job == "rebuild" and it.media_path:
+                it.status, it.stage, it.job = "pending_approval", "", ""
+                it.error = f"Your PC ({it.worker}) stopped while rebuilding your edit – the previous version is kept."
+                n += 1
+            elif it.worker in known and it.worker not in alive:
                 it.error = (f"Your PC ({it.worker}) stopped while making this video (at {it.progress}%: {it.stage}). "
                             "It was probably switched off or the worker window was closed. Click Regenerate to try again.")[:2000]
                 it.status, it.stage = "failed", ""
@@ -106,7 +110,10 @@ def run_one(item: ContentItem) -> None:
     t = threading.Thread(target=beat, daemon=True)
     t.start()
     try:
-        if item.source_url:
+        if item.job == "rebuild":
+            from . import editing
+            editing.rebuild_video(item.id)
+        elif item.source_url:
             pipeline.generate_from_url(item.source_url, item.kind, item.notes, item.run_date, item.id, on_worker=True)
         else:
             pipeline.generate_own(item.id, item.run_date, item.kind)
