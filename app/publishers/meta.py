@@ -60,7 +60,7 @@ def facebook_publish(kind: str, media: Path, caption: str) -> str:
     return str(data.get("post_id") or data.get("id"))
 
 
-def instagram_publish(kind: str, media: Path, caption: str, url: str | None = None) -> str:
+def instagram_publish(kind: str, media: Path, caption: str, url: str | None = None) -> dict:
     """Works the same for both logins: graph.instagram.com (Instagram login) or graph.facebook.com (via Page)."""
     from ..connections import instagram_refresh_if_needed, instagram_target
     try:
@@ -94,4 +94,9 @@ def instagram_publish(kind: str, media: Path, caption: str, url: str | None = No
         else:
             raise RuntimeError("Instagram processing timed out")
         pub = _check(c.post(f"{base}/media_publish", data={"creation_id": container, "access_token": token}))
-    return str(pub["id"])
+        link = ""
+        try:  # the public link of the new post, for "View on Instagram"
+            link = _check(c.get(f"{host}/{pub['id']}", params={"fields": "permalink", "access_token": token})).get("permalink", "")
+        except Exception:
+            pass
+    return {"id": str(pub["id"]), "url": link}

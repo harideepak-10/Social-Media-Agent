@@ -49,7 +49,7 @@ export default function ItemCard({ item, onAction, busy, selecting, selected, on
             </div>
           )}
           <div className="absolute left-2 top-2 flex gap-1.5 sm:left-3 sm:top-3">
-            <StatusBadge status={item.status} className="bg-white/95 shadow-sm backdrop-blur" />
+            <StatusBadge status={item.status} onImage />
           </div>
           <div className="absolute bottom-2 left-2 flex gap-1.5 sm:bottom-3 sm:left-3">
             {item.quality && item.quality.passed !== null && !generating && (

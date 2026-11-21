@@ -25,8 +25,10 @@ def publish(platform: str, kind: str, media_ref: str | Path, caption: str) -> di
         from .. import storage
         local = storage.local_file(media_ref)
         url = str(media_ref) if storage.is_url(str(media_ref)) else None
-        post_id = fn(kind, local, caption, url)
-        return {"ok": True, "dry_run": False, "id": post_id, "error": ""}
+        post = fn(kind, local, caption, url)
+        if isinstance(post, dict):  # {"id", "url"}
+            return {"ok": True, "dry_run": False, "id": str(post.get("id", "")), "url": post.get("url", ""), "error": ""}
+        return {"ok": True, "dry_run": False, "id": post, "error": ""}
     except Exception as e:
         log.exception("publish to %s failed", platform)
         return {"ok": False, "dry_run": False, "id": "", "error": str(e)[:800]}

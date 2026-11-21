@@ -5,6 +5,7 @@ export const STATUS: Record<Status, { label: string; cls: string; dot: string }>
   queued: { label: "Waiting for PC", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200", dot: "bg-indigo-300" },
   pending_approval: { label: "Needs review", cls: "bg-amber-50 text-amber-800 ring-amber-200", dot: "bg-amber-500" },
   approved: { label: "Approved", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500" },
+  publishing: { label: "Posting now…", cls: "bg-sky-600 text-white ring-sky-600", dot: "bg-white" },
   published: { label: "Published", cls: "bg-emerald-600 text-white ring-emerald-600", dot: "bg-white" },
   dry_run: { label: "Test run", cls: "bg-stone-100 text-stone-700 ring-stone-200", dot: "bg-stone-400" },
   partial: { label: "Partly published", cls: "bg-orange-50 text-orange-700 ring-orange-200", dot: "bg-orange-500" },

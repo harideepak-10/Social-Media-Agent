@@ -19,7 +19,7 @@ export default function ItemDetail() {
   const { data: item, isLoading, error } = useQuery({
     queryKey: ["item", id],
     queryFn: () => api.item(id),
-    refetchInterval: (q) => (["generating", "queued"].includes(q.state.data?.status ?? "") ? 2500 : false),
+    refetchInterval: (q) => (["generating", "queued", "publishing"].includes(q.state.data?.status ?? "") ? 2500 : false),
   });
 
   // ── editable state ──
@@ -93,7 +93,7 @@ export default function ItemDetail() {
       };
       toast("ok", msg[a]);
       if (a === "regenerate" && !d.source_url) nav("/");
-      if (a === "publish") setTimeout(() => qc.invalidateQueries({ queryKey: ["item", id] }), 4000);
+      if (a === "publish") qc.invalidateQueries({ queryKey: ["items"] });
     },
     onError: (e: Error) => toast("error", e.message),
   });
@@ -109,7 +109,10 @@ export default function ItemDetail() {
   const generating = item.status === "generating" || item.status === "queued";
   const queued = item.status === "queued";
   const pc = meta?.video_worker;
-  const editable = !generating && !["published", "dry_run"].includes(item.status);
+  const publishing = item.status === "publishing";
+  const editable = !generating && !publishing && !["published", "dry_run"].includes(item.status);
+  const posted = Object.entries(item.results ?? {}).filter(([, r]) => r?.ok && !r.dry_run);
+  const testOnly = Object.entries(item.results ?? {}).filter(([, r]) => r?.ok && r.dry_run).map(([p]) => PLATFORMS.find((x) => x.id === p)?.label ?? p);
   const warning = item.error && item.status !== "failed" ? item.error : "";
 
   return (
@@ -143,7 +146,7 @@ export default function ItemDetail() {
           {item.notes && <p className="mt-1 text-sm text-stone-500">Your focus: <em>{item.notes}</em></p>}
         </div>
 
-        {!generating && (
+        {!generating && !publishing && (
           <div className="flex flex-wrap gap-2">
             {["pending_approval", "rejected", "failed", "partial"].includes(item.status) && item.media && (
               <Button variant="success" icon={<Check className="size-4" />} loading={act.isPending && act.variables === "approve"}
@@ -182,9 +185,38 @@ export default function ItemDetail() {
           {meta?.agent?.paused && " – but the agent is paused, so it waits until you resume"}.
         </Banner>
       )}
+      {publishing && (
+        <div className="mt-6 overflow-hidden rounded-xl bg-sky-600 text-white shadow-lg shadow-sky-900/10">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <Loader2 className="size-5 shrink-0 animate-spin" />
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold">Posting now…</div>
+              <div className="text-sm text-white/80">{item.stage || "Sending to the platforms"} – Instagram can take up to a minute to process the {item.kind === "video" ? "Reel" : "image"}. You can leave this page.</div>
+            </div>
+          </div>
+          <div className="h-1 bg-white/20"><div className="h-full w-1/3 animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-white" /></div>
+        </div>
+      )}
+      {(item.status === "published" || item.status === "partial") && posted.length > 0 && (
+        <div className="mt-6 rounded-xl bg-emerald-600 px-4 py-3 text-white shadow-lg shadow-emerald-900/10">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <CheckCircle2 className="size-5 shrink-0" />
+            <span className="font-semibold">{item.status === "partial" ? "Partly posted" : "Posted"}{item.published_at ? ` · ${new Date(item.published_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : ""}</span>
+            <span className="flex flex-wrap gap-2">
+              {posted.map(([p, r]) => {
+                const label = PLATFORMS.find((x) => x.id === p)?.label ?? p;
+                return r?.url
+                  ? <a key={p} href={r.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-50">View on {label} ↗</a>
+                  : <span key={p} className="rounded-full bg-white/20 px-3 py-1 text-xs font-bold">{label} ✓</span>;
+              })}
+            </span>
+          </div>
+          {testOnly.length > 0 && <div className="mt-1.5 pl-8 text-xs text-white/80">Not connected yet (test mode, not posted): {testOnly.join(", ")}</div>}
+        </div>
+      )}
       {item.status === "failed" && (
         <Banner tone="error" icon={<XCircle className="size-4" />}>
-          <div className="font-semibold">Generation failed</div>
+          <div className="font-semibold">{Object.keys(item.results ?? {}).length ? "Posting failed" : "Generation failed"}</div>
           <div className="mt-1 whitespace-pre-wrap font-mono text-xs">{item.error}</div>
         </Banner>
       )}
@@ -243,8 +275,8 @@ export default function ItemDetail() {
                   return (
                     <button key={p.id} disabled={!editable}
                       onClick={() => setPlatforms((cur) => on ? cur.filter((x) => x !== p.id) : [...cur, p.id])}
-                      className={clsx("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ring-1 transition disabled:opacity-60",
-                        on ? "bg-ink-900 text-white ring-ink-900" : "bg-white text-stone-500 ring-stone-200 hover:text-stone-800")}>
+                      className={clsx("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ring-1 transition disabled:cursor-default",
+                        on ? "bg-ink-900 text-white ring-ink-900" : "bg-white text-stone-500 ring-stone-200 hover:text-stone-800 disabled:opacity-50")}>
                       <span className="size-2 rounded-full" style={{ background: on ? p.color : "#d6d3d1" }} />
                       {p.label}
                       {meta && <span className={clsx("text-[10px] font-medium", on ? "text-white/50" : "text-stone-400")}>{meta.platforms[p.id] ? "live" : "test"}</span>}
@@ -508,7 +540,8 @@ function Results({ item }: { item: TItem }) {
               {r!.ok ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-red-600" />}
               <span className="font-semibold">{PLATFORMS.find((x) => x.id === p)?.label ?? p}</span>
               {r!.dry_run && <Chip>test mode – not posted</Chip>}
-              {r!.id && <span className="text-xs text-stone-400">id {r!.id}</span>}
+              {r!.url ? <a href={r!.url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand-700 hover:underline">View post ↗</a>
+                : r!.id && <span className="text-xs text-stone-400">id {r!.id}</span>}
             </div>
             {r!.error && <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-red-50 p-2 text-xs text-red-700">{r!.error}</pre>}
           </li>

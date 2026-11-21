@@ -1,7 +1,7 @@
 // Typed client for the agent's JSON API (app/api.py).
 
 export type Status =
-  | "generating" | "queued" | "pending_approval" | "approved" | "published" | "dry_run"
+  | "generating" | "queued" | "pending_approval" | "approved" | "publishing" | "published" | "dry_run"
   | "partial" | "failed" | "rejected";
 
 export type Platform = "instagram" | "facebook" | "linkedin";
@@ -39,7 +39,7 @@ export interface Item {
 export interface Metrics { likes: number; comments: number; shares: number; reach: number; views: number; clicks: number; engagement?: number }
 export type PlatformMetrics = Partial<Metrics> & { fetched_at?: string; error?: string; notes?: string };
 
-export interface PublishResult { ok: boolean; dry_run?: boolean; id: string; error: string }
+export interface PublishResult { ok: boolean; dry_run?: boolean; id: string; url?: string; error: string }
 
 export interface QualityReport {
   passed: boolean | null;

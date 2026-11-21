@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import clsx from "clsx";
-import { CheckCircle2, Loader2, X, XCircle } from "lucide-react";
+import { Check, CheckCircle2, Loader2, X, XCircle } from "lucide-react";
 import type { Status } from "../lib/api";
 import { STATUS } from "../lib/ui";
 
@@ -34,11 +34,15 @@ export function Button({ variant = "outline", loading, icon, className, children
 }
 
 // ── Status badge / progress ────────────────────────────────────────────────
-export function StatusBadge({ status, className }: { status: Status; className?: string }) {
+const SOLID: Status[] = ["published", "publishing"];   // these keep their own strong colour, also on images
+
+export function StatusBadge({ status, className, onImage }: { status: Status; className?: string; onImage?: boolean }) {
   const s = STATUS[status] ?? STATUS.rejected;
+  const busy = status === "publishing" || status === "generating";
   return (
-    <span className={clsx("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1", s.cls, className)}>
-      <span className={clsx("size-1.5 rounded-full", s.dot)} />
+    <span className={clsx("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1", s.cls,
+      onImage && (SOLID.includes(status) ? "shadow-md shadow-black/20" : "bg-white/95 shadow-sm backdrop-blur"), className)}>
+      {busy ? <Loader2 className="size-3 animate-spin" /> : status === "published" ? <Check className="size-3" strokeWidth={3} /> : <span className={clsx("size-1.5 rounded-full", s.dot)} />}
       {s.label}
     </span>
   );

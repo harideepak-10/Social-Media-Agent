@@ -174,6 +174,11 @@ def _quality(kind: str, gen: dict, topic: str, item_id: int) -> dict:
 
 
 def recover_interrupted() -> int:
+    recover_stuck_publishing(startup=True)
+    return _recover_generating()
+
+
+def _recover_generating() -> int:
     """At start-up nothing can be generating yet: items still marked 'generating' were cut off by a restart
     (on Render's free plan usually because a video ran out of memory). Mark them failed so they can be retried."""
     from .generators.ffmpeg import low_memory
@@ -367,19 +372,47 @@ def full_caption(item: ContentItem, platform: str) -> str:
     return (cap.rstrip() + ("\n\n" + " ".join(missing) if missing else "")).strip()
 
 
-def publish_item(item_id: int) -> ContentItem:
+def claim_for_publishing(item_id: int) -> bool:
+    """approved/partial -> publishing (atomic), so the 5-minute check and "Publish now" never post twice
+    and the dashboard can show "Posting now…"."""
+    from sqlalchemy import update
+    with get_session() as s:
+        n = s.execute(update(ContentItem).where(ContentItem.id == item_id,
+                                                ContentItem.status.in_(["approved", "partial"]))
+                      .values(status="publishing", stage="Posting now", progress=0,
+                              published_at=datetime.utcnow())).rowcount
+        s.commit()
+        return bool(n)
+
+
+def publish_item(item_id: int, claimed: bool = False) -> ContentItem:
+    if not claimed and not claim_for_publishing(item_id):
+        with get_session() as s:
+            item = s.get(ContentItem, item_id)
+            raise ValueError(f"item #{item_id} is {item.status if item else 'missing'}, not approved")
     with get_session() as s:
         item = s.get(ContentItem, item_id)
-        if item.status not in ("approved", "partial"):
-            raise ValueError(f"item #{item_id} is {item.status}, not approved")
         results = item.results
-        for platform in item.platform_list:
-            media = item.media_path
-            if item.media_alt_path and platform in ("instagram", "facebook"):
-                media = item.media_alt_path  # 9:16 version for Reels
-            if results.get(platform, {}).get("ok") and not results[platform].get("dry_run"):
-                continue  # already posted (retry case)
-            results[platform] = publishers.publish(platform, item.kind, media, full_caption(item, platform))
+        platforms = item.platform_list
+        try:
+            for n, platform in enumerate(platforms):
+                media = item.media_path
+                if item.media_alt_path and platform in ("instagram", "facebook"):
+                    media = item.media_alt_path  # 9:16 version for Reels
+                if results.get(platform, {}).get("ok") and not results[platform].get("dry_run"):
+                    continue  # already posted (retry case)
+                item.stage, item.progress = f"Posting to {platform.title()}", int(100 * n / max(1, len(platforms)))
+                s.commit()
+                results[platform] = publishers.publish(platform, item.kind, media, full_caption(item, platform))
+                item.results = dict(results)  # keep what's done even if a later platform crashes
+                s.commit()
+        except Exception as e:  # unexpected crash: never leave it stuck in "publishing"
+            log.exception("publishing #%s crashed", item_id)
+            item.results = results
+            item.status = "partial" if any(r.get("ok") and not r.get("dry_run") for r in results.values()) else "failed"
+            item.stage, item.error = "", f"Posting stopped: {e}"[:2000]
+            s.commit()
+            return item
         item.results = results
         oks = [r["ok"] for r in results.values()]
         item.status = "published" if all(oks) else ("partial" if any(oks) else "failed")
@@ -387,6 +420,7 @@ def publish_item(item_id: int) -> ContentItem:
             item.status = "dry_run"  # nothing was really posted (no platform credentials yet)
         item.error = "\n".join(f"{p}: {r['error']}" for p, r in results.items() if r["error"])
         item.published_at = datetime.utcnow()
+        item.stage, item.progress = "", 100
         s.commit()
     msg = ", ".join(f"{p}: {'✅' if r['ok'] else '❌'}{' (dry-run)' if r.get('dry_run') else ''}" for p, r in results.items())
     notify.telegram(f"📣 Published #{item.id} {item.topic}\n{msg}")
@@ -404,6 +438,7 @@ def publish_due() -> list[int]:
     default = settings().get("publish_time", "10:00")
     done = []
     with get_session() as s:
+        recover_stuck_publishing()
         due = s.scalars(select(ContentItem).where(ContentItem.status == "approved", ContentItem.deleted_at.is_(None),
                                                   ContentItem.run_date <= now.date(),
                                                   ContentItem.run_date >= now.date() - timedelta(days=1))).all()
@@ -413,6 +448,33 @@ def publish_due() -> list[int]:
             if i.run_date < now.date() or (now.hour, now.minute) >= (hh, mm):
                 ids.append(i.id)
     for item_id in ids:
-        publish_item(item_id)
+        if not claim_for_publishing(item_id):
+            continue  # someone clicked "Publish now" meanwhile
+        try:
+            publish_item(item_id, claimed=True)
+        except Exception:
+            log.exception("publishing #%s failed", item_id)
         done.append(item_id)
     return done
+
+
+PUBLISH_STUCK_MIN = 20
+
+
+def recover_stuck_publishing(startup: bool = False) -> int:
+    """Items left in 'publishing' (server restarted mid-post): never re-post blindly – the platform may already
+    have it. Mark them so you can check and press Publish now (platforms that already succeeded are skipped)."""
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(minutes=0 if startup else PUBLISH_STUCK_MIN)
+    with get_session() as s:
+        items = s.scalars(select(ContentItem).where(ContentItem.status == "publishing",
+                                                    ContentItem.published_at <= cutoff)).all()
+        for it in items:
+            done = [p for p, r in (it.results or {}).items() if r.get("ok") and not r.get("dry_run")]
+            it.status = "partial" if done else "failed"
+            it.stage = ""
+            it.error = ("Posting was interrupted (the server restarted). "
+                        + (f"Already posted: {', '.join(done)}. " if done else "")
+                        + "Check the account, then press Publish now to finish – posted platforms are skipped.")
+        s.commit()
+        return len(items)

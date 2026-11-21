@@ -399,6 +399,8 @@ def item_action(item_id: int, action: str, _: str = User):
         item = _get(s, item_id)
         if item.status in ("generating", "queued") and action not in ("reject", "stop"):
             raise HTTPException(409, "Still being made – wait until it's ready, or press Stop")
+        if item.status == "publishing":
+            raise HTTPException(409, "It's being posted right now – wait a moment")
         if action == "approve":
             if item.status not in ("pending_approval", "rejected", "failed", "partial"):
                 raise HTTPException(409, f"Can't approve an item that is {item.status}")
@@ -423,8 +425,12 @@ def item_action(item_id: int, action: str, _: str = User):
                 raise HTTPException(409, "Already published")
             if not item.media_path:
                 raise HTTPException(409, "Nothing to publish yet")
-            item.status = "approved"
+            if item.status not in ("approved", "partial"):
+                item.status = "approved"
         s.commit()
+        if action == "publish":
+            pipeline.claim_for_publishing(item_id)  # shows "Posting now…" immediately
+            s.refresh(item)
         result = serialize(item, full=True)
 
     if action == "check":
@@ -435,7 +441,7 @@ def item_action(item_id: int, action: str, _: str = User):
         else:
             _bg(pipeline.generate_for, day, kind, True, origin="regenerate", notes=notes)
     elif action == "publish":
-        _bg(pipeline.publish_item, item_id)
+        _bg(pipeline.publish_item, item_id, claimed=True)
     return result
 
 

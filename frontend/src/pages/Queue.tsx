@@ -15,12 +15,12 @@ const TABS: { id: string; label: string; statuses: Status[] | null; bin?: boolea
   { id: "all", label: "All", statuses: null },
   { id: "review", label: "Needs review", statuses: ["pending_approval"] },
   { id: "generating", label: "Generating", statuses: ["generating", "queued"] },
-  { id: "approved", label: "Approved", statuses: ["approved"] },
+  { id: "approved", label: "Approved", statuses: ["approved", "publishing"] },
   { id: "published", label: "Published", statuses: ["published", "dry_run", "partial"] },
   { id: "archived", label: "Rejected / failed", statuses: ["rejected", "failed"] },
   { id: "bin", label: "Bin", statuses: null, bin: true },
 ];
-const ALL_STATUSES: Status[] = ["generating", "queued", "pending_approval", "approved", "published", "dry_run", "partial", "failed", "rejected"];
+const ALL_STATUSES: Status[] = ["generating", "queued", "pending_approval", "approved", "publishing", "published", "dry_run", "partial", "failed", "rejected"];
 
 export default function Queue() {
   const qc = useQueryClient();
@@ -44,7 +44,7 @@ export default function Queue() {
   const { data, isLoading } = useQuery({
     queryKey: ["items", tab, kind, search],
     queryFn: () => api.items({ status: statuses?.join(","), kind, q: search, limit: 120, bin: current.bin }),
-    refetchInterval: (query) => (query.state.data?.items.some((i) => ["generating", "queued"].includes(i.status)) ? 3000 : 20000),
+    refetchInterval: (query) => (query.state.data?.items.some((i) => ["generating", "queued", "publishing"].includes(i.status)) ? 3000 : 20000),
   });
 
   const action = useMutation({
