@@ -78,8 +78,9 @@ function InstagramCard({ c }: { c: TConn }) {
   const [manual, setManual] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const start = useConnMutation(async () => { const { url } = await api.connectStart("instagram"); window.location.href = url; return null; });
+  const select = useConnMutation((id: string) => api.connectSelect("instagram", id), "Instagram account connected");
   const disconnect = useConnMutation(() => api.disconnect("instagram"), "Instagram disconnected");
-  const expiring = ig.expires_in_days !== null && ig.expires_in_days < 7;
+  const expiring = !ig.never_expires && ig.expires_in_days !== null && ig.expires_in_days < 7;
 
   return (
     <Card className="overflow-hidden">
@@ -87,39 +88,52 @@ function InstagramCard({ c }: { c: TConn }) {
         <BrandIcon kind="instagram" />
         <div className="min-w-0 flex-1">
           <h2 className="font-bold">Instagram</h2>
-          <p className="text-xs text-stone-500">Log in with your Instagram professional account – no Facebook Page needed. Posts, Reels and stats.</p>
+          <p className="text-xs text-stone-500">Your Instagram professional account – no Facebook Page needed. Posts, Reels and stats.</p>
         </div>
         <div className="w-full sm:w-auto"><ConnBadge on={ig.connected} source={ig.source} warn={ig.connected && expiring} /></div>
       </div>
       <div className="p-4 sm:p-6">
-        {ig.connected ? (
+        {ig.pending_choices.length > 0 && !ig.connected ? (
+          <ChoosePage title="Which Instagram account should the agent post to?" items={ig.pending_choices.map((a) => ({
+            id: a.id, name: a.username ? `@${a.username}` : a.id, sub: a.name || `ID ${a.id}`, picture: a.picture,
+          }))} busy={select.isPending} onPick={(id) => select.mutate(id)} pickLabel="Use this account" />
+        ) : ig.connected ? (
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Account icon={<BrandIcon kind="instagram" size={36} />} label="Instagram account" value={ig.username ? `@${ig.username}` : ig.ig_user_id}
                 sub={ig.account_type ? ig.account_type.replace("_", " ").toLowerCase() + " account" : `ID ${ig.ig_user_id}`} picture={ig.picture} />
               <Account icon={<span className={clsx("grid size-9 place-items-center rounded-xl", expiring ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500")}><KeyRound className="size-4" /></span>}
-                label="Access" value={ig.expires_in_days === null ? "Set in .env" : `Valid for ${ig.expires_in_days} more days`}
-                sub="Renews automatically while the agent is running"
+                label="Access" value={ig.never_expires ? "Never expires" : ig.expires_in_days === null ? "Set in .env" : `Valid for ${ig.expires_in_days} more days`}
+                sub={ig.login === "unified" ? "Meta Unified login" : "Renews automatically while the agent is running"}
                 warn={expiring ? "Expiring soon – click Reconnect." : undefined} />
             </div>
-            <ConnActions platform="instagram" onReconnect={ig.source !== "env" ? () => start.mutate(undefined) : undefined}
+            <ConnActions platform="instagram" onReconnect={ig.source !== "env" && ig.app_configured ? () => start.mutate(undefined) : undefined}
               onDisconnect={ig.source === "env" ? undefined : () => setConfirm(true)} reconnecting={start.isPending} envNote={ig.source === "env"}
               reconnectLabel="Reconnect / change account" />
           </>
         ) : (
-          <Steps
-            appDone={ig.app_configured} appLabel={ig.app_configured ? `Instagram app ${ig.app_id}` : "Add your Instagram app (one time)"} onApp={() => setAppOpen(true)}
-            connectLabel="Connect with Instagram" connectIcon={<BrandIcon kind="instagram" size={18} />} onConnect={() => start.mutate(undefined)} connecting={start.isPending}
-            onManual={() => setManual(true)} connectStep="Log in with your Instagram professional account" manualLabel="Have a token from the Meta dashboard? Paste it" />
+          <div className="space-y-4">
+            <div className="rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="flex-1 text-sm"><b>Easiest:</b> paste the access token you generate in your Meta app (never expires).</span>
+                <Button variant="primary" icon={<KeyRound className="size-4" />} onClick={() => setManual(true)}>Paste token</Button>
+              </div>
+            </div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-stone-400">Or log in with a button</div>
+            <Steps
+              appDone={ig.app_configured} appLabel={ig.app_configured ? `Meta app ${ig.app_id}${ig.config_id ? " · configuration " + ig.config_id : ""}` : "Add your Meta app (one time)"} onApp={() => setAppOpen(true)}
+              connectLabel="Connect with Instagram" connectIcon={<BrandIcon kind="instagram" size={18} />} onConnect={() => start.mutate(undefined)} connecting={start.isPending}
+              connectStep="Log in and pick your Instagram account" hideManual />
+          </div>
         )}
       </div>
       <AppModal open={appOpen} onClose={() => setAppOpen(false)} platform="instagram" redirect={ig.redirect_uri} current={ig.app_id}
-        title="Instagram app" idLabel="Instagram App ID" secretLabel="Instagram App secret"
+        title="Meta app" idLabel="App ID" secretLabel="App secret" config={{ current: ig.config_id }}
         steps={<>
-          <li>Open <Ext href="https://developers.facebook.com/apps">developers.facebook.com/apps</Ext> → <b>Create app</b> → use case <b>Manage messaging &amp; content on Instagram</b>.</li>
-          <li>In the app, open <b>Instagram → API setup with Instagram login</b>. Under <b>3. Set up Instagram business login</b> → <b>Business login settings</b>, paste the redirect URL below into <b>OAuth redirect URIs</b> and save.</li>
-          <li>Copy the <b>Instagram App ID</b> and <b>Instagram App secret</b> shown there (not the Facebook App ID) into the boxes below.</li>
-          <li>Under <b>App roles → Roles</b>, add your Instagram account as an <b>Instagram Tester</b> and accept the invite in Instagram (Settings → Website permissions → Apps and websites → Tester invites). Needed while the app is in development mode.</li>
+          <li>In your Meta app: <b>Use cases → Instagram → Customize → API setup with Unified login</b>. Connect a <b>business portfolio</b> (create a free one if asked).</li>
+          <li><b>1. Configure your app → Create new configuration</b>: token type <b>System-user access token</b>, expiry <b>Never</b>, asset <b>your Instagram account</b>, permissions <b>instagram_basic, instagram_content_publish, instagram_manage_insights</b>. Copy its <b>Configuration ID</b>.</li>
+          <li>Add the redirect URL below to <b>Facebook Login for Business → Settings → Valid OAuth Redirect URIs</b>.</li>
+          <li>From <b>App settings → Basic</b>, copy the <b>App ID</b> and <b>App secret</b>. (Older apps with "API setup with Instagram login": use the Instagram App ID/secret and leave the Configuration ID empty.)</li>
         </>} />
       <ManualInstagram open={manual} onClose={() => setManual(false)} />
       <Confirm open={confirm} title="Disconnect Instagram?" body="Approved content will no longer be posted to Instagram (test mode) until you connect again."
@@ -130,13 +144,18 @@ function InstagramCard({ c }: { c: TConn }) {
 
 function ManualInstagram({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [token, setToken] = useState("");
-  const save = useConnMutation(() => api.instagramManual(token.trim()), "Instagram connected");
+  const save = useConnMutation(() => api.instagramManual(token.trim()), "Instagram token checked");
   return (
-    <Modal open={open} title="Paste an Instagram token" onClose={onClose}
+    <Modal open={open} title="Paste your Instagram access token" onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={token.trim().length < 20} loading={save.isPending}
           onClick={() => save.mutate(undefined, { onSuccess: onClose })}>Verify & connect</Button></>}>
-      <p className="text-sm text-stone-500">In the Meta app: <b>Instagram → API setup with Instagram login → 2. Generate access tokens</b> → <b>Add account</b> → <b>Generate token</b>. The account is checked before saving and the token renews automatically.</p>
+      <ol className="list-decimal space-y-2 pl-5 text-sm text-stone-600">
+        <li>In your Meta app: <b>Use cases → Instagram → Customize → API setup with Unified login</b>, and connect a <b>business portfolio</b> (a free one is fine).</li>
+        <li><b>1. Configure your app → Create new configuration</b>: <b>System-user access token</b>, expiry <b>Never</b>, asset <b>your Instagram account</b>, permissions <b>instagram_basic</b>, <b>instagram_content_publish</b>, <b>instagram_manage_insights</b>.</li>
+        <li><b>2. Generate access tokens</b> → generate the token for that configuration and copy it.</li>
+        <li>Paste it below. The Instagram account is found and checked before saving.</li>
+      </ol>
       <div className="mt-4"><Field label="Access token"><input type="password" value={token} onChange={(e) => setToken(e.target.value)} className={inputCls} autoComplete="new-password" /></Field></div>
     </Modal>
   );
@@ -270,9 +289,9 @@ function ConnBadge({ on, source, warn }: { on: boolean; source: string; warn?: b
   );
 }
 
-function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect, connecting, onManual, connectStep, manualLabel }: {
+function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect, connecting, onManual, connectStep, manualLabel, hideManual }: {
   appDone: boolean; appLabel: string; onApp: () => void; connectLabel: string; connectIcon: ReactNode;
-  onConnect: () => void; connecting: boolean; onManual: () => void; connectStep?: string; manualLabel?: string;
+  onConnect: () => void; connecting: boolean; onManual?: () => void; connectStep?: string; manualLabel?: string; hideManual?: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -290,9 +309,9 @@ function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect,
           <Button variant="dark" disabled={!appDone} loading={connecting} onClick={onConnect} icon={connectIcon}>{connectLabel}</Button>
         </li>
       </ol>
-      <button onClick={onManual} className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-900">
+      {!hideManual && onManual && <button onClick={onManual} className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-900">
         <KeyRound className="size-3.5" /> {manualLabel ?? "Already have tokens? Enter them manually"}
-      </button>
+      </button>}
     </div>
   );
 }
@@ -337,7 +356,7 @@ function ConnActions({ platform, onReconnect, onDisconnect, reconnecting, envNot
   );
 }
 
-function ChoosePage({ title, items, onPick, busy }: { title: string; items: { id: string; name: string; sub: string; picture?: string }[]; onPick: (id: string) => void; busy: boolean }) {
+function ChoosePage({ title, items, onPick, busy, pickLabel }: { title: string; items: { id: string; name: string; sub: string; picture?: string }[]; onPick: (id: string) => void; busy: boolean; pickLabel?: string }) {
   const [sel, setSel] = useState(items[0]?.id ?? "");
   return (
     <div>
@@ -353,19 +372,21 @@ function ChoosePage({ title, items, onPick, busy }: { title: string; items: { id
           </li>
         ))}
       </ul>
-      <Button variant="primary" className="mt-4" loading={busy} disabled={!sel} onClick={() => onPick(sel)}>Use this Page</Button>
+      <Button variant="primary" className="mt-4" loading={busy} disabled={!sel} onClick={() => onPick(sel)}>{pickLabel ?? "Use this Page"}</Button>
     </div>
   );
 }
 
-function AppModal({ open, onClose, platform, redirect, current, title, idLabel, secretLabel, steps }: {
+function AppModal({ open, onClose, platform, redirect, current, title, idLabel, secretLabel, steps, config }: {
   open: boolean; onClose: () => void; platform: P; redirect: string; current: string; title: string; idLabel: string; secretLabel: string; steps: ReactNode;
+  config?: { current: string };
 }) {
   const toast = useToast();
   const [id, setId] = useState(current);
   const [secret, setSecret] = useState("");
-  useEffect(() => { if (open) { setId(current); setSecret(""); } }, [open, current]);
-  const save = useConnMutation(() => api.setApp(platform, id.trim(), secret.trim()), `${title} saved – you can connect now`);
+  const [cfg, setCfg] = useState(config?.current ?? "");
+  useEffect(() => { if (open) { setId(current); setSecret(""); setCfg(config?.current ?? ""); } }, [open, current, config?.current]);
+  const save = useConnMutation(() => api.setApp(platform, id.trim(), secret.trim(), cfg.trim()), `${title} saved – you can connect now`);
   return (
     <Modal open={open} title={`Set up your ${title}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -384,6 +405,9 @@ function AppModal({ open, onClose, platform, redirect, current, title, idLabel, 
         <Field label={secretLabel} hint={current ? "Enter it again to change" : undefined}>
           <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} className={inputCls} autoComplete="new-password" />
         </Field>
+        {config && <div className="sm:col-span-2"><Field label="Configuration ID" hint="From API setup with Unified login → Configure your app. Leave empty for older apps that use Instagram login.">
+          <input value={cfg} onChange={(e) => setCfg(e.target.value)} className={inputCls} autoComplete="off" />
+        </Field></div>}
       </div>
     </Modal>
   );

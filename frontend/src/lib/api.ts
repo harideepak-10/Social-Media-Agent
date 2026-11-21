@@ -162,6 +162,8 @@ export interface LinkedInConn {
 export interface InstagramConn {
   app_configured: boolean; app_id: string; redirect_uri: string; connected: boolean; source: string; method: string;
   ig_user_id: string; username: string; picture: string; account_type: string; expires_in_days: number | null; connected_at: number | null;
+  config_id: string; login: string; never_expires: boolean;
+  pending_choices: { id: string; username: string; name: string; picture: string }[];
 }
 export type ConnPlatform = "instagram" | "meta" | "linkedin";
 export interface Connections { public_url: string; instagram: InstagramConn; meta: MetaConn; linkedin: LinkedInConn }
@@ -298,8 +300,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/events/${id}/pause`, { method: "POST", body: JSON.stringify({ paused }) }),
 
   connections: () => request<Connections>("/api/connections"),
-  setApp: (platform: ConnPlatform, id: string, secret: string) =>
-    request<Connections>(`/api/connections/apps/${platform}`, { method: "PUT", body: JSON.stringify({ id, secret }) }),
+  setApp: (platform: ConnPlatform, id: string, secret: string, config_id = "") =>
+    request<Connections>(`/api/connections/apps/${platform}`, { method: "PUT", body: JSON.stringify({ id, secret, config_id }) }),
   removeApp: (platform: ConnPlatform) => request<Connections>(`/api/connections/apps/${platform}`, { method: "DELETE" }),
   connectStart: (platform: ConnPlatform) => request<{ url: string }>(`/api/connections/${platform}/start`),
   connectSelect: (platform: ConnPlatform, id: string) =>

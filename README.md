@@ -228,14 +228,17 @@ Tokens are stored encrypted in the database. "Enter tokens manually" is there if
 The manual way (tokens in `.env`) and what each app needs:
 
 ### Instagram only (no Facebook Page needed)
-Settings → Connections → **Instagram** → **Set up**:
+New Meta apps (since late Oct 2026) use **API setup with Unified login**: no Facebook Page, but a (free) business
+portfolio, and a system-user token that never expires.
 1. developers.facebook.com → **Create app** → use case **Manage messaging & content on Instagram**.
-2. **Instagram → API setup with Instagram login → Set up Instagram business login → Business login settings**:
-   add `https://<your-app>/api/connections/instagram/callback` as an OAuth redirect URI.
-3. Copy the **Instagram App ID / secret** (not the Facebook App ID) into the dashboard.
-4. **App roles → Roles → Instagram Testers**: add your account, accept the invite in Instagram.
-5. Click **Connect with Instagram**. The 60-day token renews automatically. If an Instagram account is connected
-   here, Instagram posts go through it (the Facebook connection below is then only used for the Facebook Page).
+2. **Use cases → Instagram → Customize → API setup with Unified login** → connect a business portfolio.
+3. **1. Configure your app → Create new configuration**: System-user access token, expiry Never, asset = your
+   Instagram account, permissions `instagram_basic`, `instagram_content_publish`, `instagram_manage_insights`.
+4. **2. Generate access tokens** → copy the token → dashboard **Settings → Connections → Instagram → Paste token**.
+   (Or enter App ID + secret + Configuration ID under "Set up" and use **Connect with Instagram**; then add
+   `https://<your-app>/api/connections/instagram/callback` under Facebook Login for Business → Valid OAuth Redirect URIs.)
+Older apps with "API setup with Instagram login" still work: Instagram App ID/secret, no Configuration ID.
+If an Instagram account is connected here, Instagram posts go through it.
 
 ### Facebook + Instagram (one Meta app covers both)
 1. Convert Instagram to a **Business/Creator account** and link it to your **Facebook Page** (Instagram → Settings → Account type / Linked Page).

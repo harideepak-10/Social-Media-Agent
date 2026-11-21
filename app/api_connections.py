@@ -29,12 +29,16 @@ def status(_: str = User):
 class AppIn(BaseModel):
     id: str = Field(min_length=3, max_length=200)
     secret: str = Field(min_length=6, max_length=300)
+    config_id: str = Field("", max_length=100)   # Instagram Unified login configuration
 
 
 @router.put("/apps/{platform}")
 def set_app(platform: str, body: AppIn, _: str = User):
     _platform(platform)
-    connections.save(f"{platform}_app", {"id": body.id.strip(), "secret": body.secret.strip()})
+    data = {"id": body.id.strip(), "secret": body.secret.strip()}
+    if platform == "instagram" and body.config_id.strip():
+        data["config_id"] = body.config_id.strip()
+    connections.save(f"{platform}_app", data)
     return connections.status()
 
 
@@ -89,7 +93,7 @@ def select(platform: str, body: SelectIn, _: str = User):
         elif platform == "linkedin":
             connections.linkedin_select(body.id)
         else:
-            raise RuntimeError("Nothing to choose for Instagram")
+            connections.instagram_select(body.id)
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return connections.status()

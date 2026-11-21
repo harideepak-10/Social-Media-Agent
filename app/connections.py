@@ -61,6 +61,11 @@ def ig_graph_base() -> str:
     return f"{ig_graph_root()}/{env('INSTAGRAM_GRAPH_VERSION', 'v21.0')}"
 
 
+def unified_graph_base() -> str:
+    """Unified login (new Meta apps, since Oct 2026): graph.facebook.com with a recent version."""
+    return f"{env('META_GRAPH_BASE', 'https://graph.facebook.com').rstrip('/')}/{env('INSTAGRAM_UNIFIED_GRAPH_VERSION', 'v26.0')}"
+
+
 def li_oauth_base() -> str:
     return env("LINKEDIN_OAUTH_BASE", "https://www.linkedin.com/oauth/v2").rstrip("/")
 
@@ -136,7 +141,9 @@ def instagram_target() -> dict:
     Returns {ig_user_id, token, base, via} or {}."""
     d = instagram_creds()
     if d.get("ig_user_id"):
-        return {"ig_user_id": d["ig_user_id"], "token": d["access_token"], "base": ig_graph_base(), "via": "instagram"}
+        unified = d.get("login") == "unified"
+        return {"ig_user_id": d["ig_user_id"], "token": d["access_token"],
+                "base": unified_graph_base() if unified else ig_graph_base(), "via": d.get("login") or "instagram"}
     m = meta_creds()
     if m.get("ig_user_id") and m.get("page_token"):
         return {"ig_user_id": m["ig_user_id"], "token": m["page_token"], "base": graph_base(), "via": "facebook"}
@@ -158,7 +165,8 @@ def app_creds(platform: str) -> dict:
     if platform == "meta":
         return {"id": c.get("id") or env("META_APP_ID"), "secret": c.get("secret") or env("META_APP_SECRET")}
     if platform == "instagram":
-        return {"id": c.get("id") or env("INSTAGRAM_APP_ID"), "secret": c.get("secret") or env("INSTAGRAM_APP_SECRET")}
+        return {"id": c.get("id") or env("INSTAGRAM_APP_ID"), "secret": c.get("secret") or env("INSTAGRAM_APP_SECRET"),
+                "config_id": c.get("config_id") or env("INSTAGRAM_CONFIG_ID")}
     return {"id": c.get("id") or env("LINKEDIN_CLIENT_ID"), "secret": c.get("secret") or env("LINKEDIN_CLIENT_SECRET")}
 
 
@@ -283,11 +291,20 @@ def meta_test() -> dict:
     return out
 
 
-# ── Instagram on its own (Instagram API with Instagram Login) ───────────────
+# ── Instagram on its own (no Facebook Page) ───────────────────────────────────
+# Two Meta set-ups exist:
+#  * "Unified login" – every app created since late Oct 2026. Facebook Login for Business with a configuration
+#    (config_id); gives a business system-user token that never expires; graph.facebook.com;
+#    accounts via /me/assigned_instagram_accounts. The token can also be generated in the App Dashboard and pasted.
+#  * "Instagram login" – older apps. instagram.com/oauth; 60-day token renewed automatically; graph.instagram.com.
 def instagram_auth_url() -> str:
     app = app_creds("instagram")
     if not app["id"]:
-        raise RuntimeError("Add your Instagram App ID and secret first")
+        raise RuntimeError("Add your App ID and secret first")
+    if app.get("config_id"):
+        q = {"client_id": app["id"], "config_id": app["config_id"], "redirect_uri": redirect_uri("instagram"),
+             "response_type": "code", "override_default_response_type": "true", "state": make_state("instagram")}
+        return f"{fb_dialog_base()}/{env('INSTAGRAM_UNIFIED_GRAPH_VERSION', 'v26.0')}/dialog/oauth?{urlencode(q)}"
     q = {"client_id": app["id"], "redirect_uri": redirect_uri("instagram"), "response_type": "code",
          "scope": ",".join(INSTAGRAM_SCOPES), "state": make_state("instagram")}
     return f"{ig_oauth_base()}/oauth/authorize?{urlencode(q)}"
@@ -298,22 +315,79 @@ def _ig_profile(c: httpx.Client, token: str) -> dict:
         "fields": "user_id,username,name,profile_picture_url,account_type", "access_token": token}), "Instagram account")
 
 
+def _unified_accounts(c: httpx.Client, token: str) -> list[dict]:
+    data = _ok(c.get(f"{unified_graph_base()}/me/assigned_instagram_accounts", params={
+        "fields": "id,username,name,profile_picture_url", "limit": 50, "access_token": token}), "Instagram accounts")
+    accs = [{"id": str(a.get("id", "")), "username": a.get("username", ""), "name": a.get("name", ""),
+             "picture": a.get("profile_picture_url", "")} for a in data.get("data", []) if a.get("id")]
+    if not accs:
+        raise RuntimeError("This token has no Instagram account – in the Meta app's configuration, add your "
+                           "Instagram professional account as an asset (and business_management if asked), then try again")
+    return accs
+
+
+def _token_expiry(c: httpx.Client, token: str) -> int | None:
+    """Unix time the token expires, or None when it never does (system-user tokens)."""
+    app = app_creds("instagram")
+    if not (app["id"] and app["secret"]):
+        return None
+    try:
+        d = _ok(c.get(f"{unified_graph_base()}/debug_token", params={
+            "input_token": token, "access_token": f"{app['id']}|{app['secret']}"}), "token check").get("data", {})
+        return int(d["expires_at"]) if d.get("expires_at") else None
+    except Exception:
+        return None
+
+
 def _ig_save(token: str, expires_in: int | None, profile: dict, method: str) -> dict:
     data = {"access_token": token, "ig_user_id": str(profile.get("user_id") or profile.get("id") or ""),
             "username": profile.get("username", ""), "name": profile.get("name", ""),
             "picture": profile.get("profile_picture_url", ""), "account_type": profile.get("account_type", ""),
             "expires_at": int(time.time()) + int(expires_in or 60 * 86400), "token_at": int(time.time()),
-            "connected_at": int(time.time()), "method": method}
+            "connected_at": int(time.time()), "method": method, "login": "instagram"}
     if not data["ig_user_id"]:
         raise RuntimeError("Instagram didn't return the account ID – is it a professional (Business/Creator) account?")
     save("instagram", data)
     return data
 
 
+def _unified_connect(token: str, method: str, expires_at: int | None) -> list[dict]:
+    with httpx.Client(timeout=60) as c:
+        accs = _unified_accounts(c, token)
+        if expires_at is None:
+            expires_at = _token_expiry(c, token)
+    base = {"access_token": token, "expires_at": expires_at, "token_at": int(time.time()),
+            "method": method, "login": "unified"}
+    save("instagram_pending", {**base, "choices": accs})
+    if len(accs) == 1:
+        instagram_select(accs[0]["id"])
+    return [{"id": a["id"], "name": a["username"]} for a in accs]
+
+
+def instagram_select(account_id: str) -> dict:
+    pending = get("instagram_pending") or {}
+    acc = next((a for a in pending.get("choices", []) if a["id"] == account_id), None)
+    if not acc:
+        raise RuntimeError("That account isn't in the list – connect again")
+    data = {k: pending.get(k) for k in ("access_token", "expires_at", "token_at", "method", "login")}
+    data.update(ig_user_id=acc["id"], username=acc["username"], name=acc.get("name", ""), picture=acc.get("picture", ""),
+                account_type="", connected_at=int(time.time()))
+    save("instagram", data)
+    delete("instagram_pending")
+    return data
+
+
 def instagram_callback(code: str) -> list[dict]:
-    """code → short-lived token → long-lived token (60 days, renewed automatically) → account."""
     app = app_creds("instagram")
     code = code.split("#")[0]
+    if app.get("config_id"):  # Unified login
+        with httpx.Client(timeout=60) as c:
+            tok = _ok(c.get(f"{unified_graph_base()}/oauth/access_token", params={
+                "client_id": app["id"], "client_secret": app["secret"], "redirect_uri": redirect_uri("instagram"),
+                "code": code}), "Instagram login")
+        exp = int(time.time()) + int(tok["expires_in"]) if tok.get("expires_in") else None
+        return _unified_connect(tok["access_token"], "oauth", exp)
+    # older apps: Instagram login – short-lived token → long-lived (60 days)
     with httpx.Client(timeout=60) as c:
         short = _ok(c.post(f"{ig_api_base()}/oauth/access_token", data={
             "client_id": app["id"], "client_secret": app["secret"], "grant_type": "authorization_code",
@@ -328,17 +402,22 @@ def instagram_callback(code: str) -> list[dict]:
     return [{"id": data["ig_user_id"], "name": data["username"]}]
 
 
-def instagram_manual(access_token: str) -> dict:
-    """A token from the App Dashboard (Instagram → API setup with Instagram login → Generate token)."""
-    with httpx.Client(timeout=30) as c:
-        profile = _ig_profile(c, access_token)
-    return _ig_save(access_token, None, profile, "manual")
+def instagram_manual(access_token: str) -> list[dict]:
+    """A token generated in the App Dashboard. 'IG…' tokens are Instagram-login tokens (graph.instagram.com);
+    anything else (EAA…) is a Unified-login system-user token (graph.facebook.com)."""
+    if access_token.startswith("IG"):
+        with httpx.Client(timeout=30) as c:
+            profile = _ig_profile(c, access_token)
+        d = _ig_save(access_token, None, profile, "manual")
+        return [{"id": d["ig_user_id"], "name": d["username"]}]
+    return _unified_connect(access_token, "manual", None)
 
 
 def instagram_refresh_if_needed(force: bool = False) -> bool:
-    """Instagram tokens last 60 days; refresh (allowed once the token is 24 h old) when < 20 days are left."""
+    """Instagram-login tokens last 60 days; refresh (allowed once 24 h old) when < 20 days are left.
+    Unified-login system-user tokens never expire – nothing to do."""
     c = get("instagram")
-    if not c or not c.get("access_token"):
+    if not c or not c.get("access_token") or c.get("login") == "unified":
         return False
     left = (c.get("expires_at") or 0) - time.time()
     if not force and left > 20 * 86400:
@@ -358,6 +437,11 @@ def instagram_test() -> dict:
     c = instagram_creds()
     if not c:
         raise RuntimeError("Not connected")
+    if c.get("login") == "unified":
+        with httpx.Client(timeout=30) as h:
+            a = _ok(h.get(f"{unified_graph_base()}/{c['ig_user_id']}", params={
+                "fields": "id,username", "access_token": c["access_token"]}), "Instagram account")
+        return {"instagram": f"@{a.get('username', '?')} – ready to post"}
     try:
         instagram_refresh_if_needed()
     except Exception:
@@ -480,12 +564,16 @@ def status() -> dict:
         "instagram": {
             "app_configured": bool(app_creds("instagram")["id"] and app_creds("instagram")["secret"]),
             "app_id": app_creds("instagram")["id"] or "",
+            "config_id": app_creds("instagram").get("config_id") or "",
             "redirect_uri": redirect_uri("instagram"),
+            "login": ig.get("login", ""), "never_expires": bool(ig) and not ig_exp and ig.get("source") != "env",
             "connected": bool(ig), "source": ig.get("source", ""), "method": ig.get("method", ""),
             "ig_user_id": ig.get("ig_user_id", ""), "username": ig.get("username", ""),
             "picture": ig.get("picture", ""), "account_type": ig.get("account_type", ""),
             "expires_in_days": int((ig_exp - now) / 86400) if ig_exp else None,
             "connected_at": ig.get("connected_at"),
+            "pending_choices": [{k: a.get(k, "") for k in ("id", "username", "name", "picture")}
+                                for a in (get("instagram_pending") or {}).get("choices", [])],
         },
         "meta": {
             "app_configured": bool(app_creds("meta")["id"] and app_creds("meta")["secret"]),
