@@ -303,7 +303,8 @@ def instagram_auth_url() -> str:
         raise RuntimeError("Add your App ID and secret first")
     if app.get("config_id"):
         q = {"client_id": app["id"], "config_id": app["config_id"], "redirect_uri": redirect_uri("instagram"),
-             "response_type": "code", "override_default_response_type": "true", "state": make_state("instagram")}
+             "response_type": "code", "override_default_response_type": "true", "prompt": "login",
+             "display": "page", "state": make_state("instagram")}  # same as the login URL in Meta's dashboard
         return f"{fb_dialog_base()}/{env('INSTAGRAM_UNIFIED_GRAPH_VERSION', 'v26.0')}/dialog/oauth?{urlencode(q)}"
     q = {"client_id": app["id"], "redirect_uri": redirect_uri("instagram"), "response_type": "code",
          "scope": ",".join(INSTAGRAM_SCOPES), "state": make_state("instagram")}
