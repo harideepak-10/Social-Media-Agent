@@ -77,11 +77,12 @@ def _facebook(post_id: str, kind: str) -> dict:
 
 
 def _instagram(media_id: str, kind: str) -> dict:
-    from .connections import graph_base, meta_creds
-    token = meta_creds().get("page_token") or meta_creds().get("page_access_token") or ""
+    from .connections import instagram_target
+    t = instagram_target()
+    token = t.get("token", "")
     out: dict = {}
     with httpx.Client() as c:
-        base = graph_base()
+        base = t.get("base", "")
         d = _get(c, f"{base}/{media_id}", access_token=token, fields="like_count,comments_count")
         out["likes"], out["comments"] = d.get("like_count", 0), d.get("comments_count", 0)
         for metric in ("reach", "views", "shares"):  # one call each: a refused metric must not hide the others

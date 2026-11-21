@@ -29,6 +29,16 @@ def _generate_tomorrow():
     pipeline.generate_for(day, origin="schedule")
 
 
+def _refresh_tokens():
+    """Keep 60-day tokens alive (Instagram login, LinkedIn) so posting never stops silently."""
+    from . import connections
+    for fn in (connections.instagram_refresh_if_needed, connections.linkedin_refresh_if_needed):
+        try:
+            fn()
+        except Exception as e:
+            log.warning("token refresh failed (%s): %s", fn.__name__, e)
+
+
 def catch_up_days(now=None) -> list:
     """Only what a sleeping server actually missed:
     - today's item, if it's still before publish time (after that it's too late to post today);
@@ -74,6 +84,7 @@ def start() -> BackgroundScheduler:
                 max_instances=1, coalesce=True, misfire_grace_time=3 * 3600)
     sch.add_job(pipeline.publish_due, "interval", minutes=5, id="publish", max_instances=1, coalesce=True)
     sch.add_job(pipeline.purge_bin, "interval", hours=6, id="bin", max_instances=1, coalesce=True)
+    sch.add_job(_refresh_tokens, "interval", hours=12, id="tokens", max_instances=1, coalesce=True)
     from . import insights
     sch.add_job(insights.refresh_recent, "interval", hours=6, id="metrics", max_instances=1, coalesce=True)
     sch.add_job(insights.weekly_job, CronTrigger(day_of_week="mon", hour=8, minute=17, timezone=tz), id="insights",

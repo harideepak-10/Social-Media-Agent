@@ -159,7 +159,12 @@ export interface LinkedInConn {
   org_id: string; org_name: string; expires_at: number | null; expires_in_days: number | null; auto_refresh: boolean;
   connected_at: number | null; pending_choices: { id: string; name: string }[];
 }
-export interface Connections { public_url: string; meta: MetaConn; linkedin: LinkedInConn }
+export interface InstagramConn {
+  app_configured: boolean; app_id: string; redirect_uri: string; connected: boolean; source: string; method: string;
+  ig_user_id: string; username: string; picture: string; account_type: string; expires_in_days: number | null; connected_at: number | null;
+}
+export type ConnPlatform = "instagram" | "meta" | "linkedin";
+export interface Connections { public_url: string; instagram: InstagramConn; meta: MetaConn; linkedin: LinkedInConn }
 
 export interface Assets { logo: string | null; music: { name: string; size: number; url: string }[] }
 export interface HealthCheck { name: string; status: "ok" | "warn" | "fail"; detail: string }
@@ -293,19 +298,21 @@ export const api = {
     request<{ ok: boolean }>(`/api/events/${id}/pause`, { method: "POST", body: JSON.stringify({ paused }) }),
 
   connections: () => request<Connections>("/api/connections"),
-  setApp: (platform: "meta" | "linkedin", id: string, secret: string) =>
+  setApp: (platform: ConnPlatform, id: string, secret: string) =>
     request<Connections>(`/api/connections/apps/${platform}`, { method: "PUT", body: JSON.stringify({ id, secret }) }),
-  removeApp: (platform: "meta" | "linkedin") => request<Connections>(`/api/connections/apps/${platform}`, { method: "DELETE" }),
-  connectStart: (platform: "meta" | "linkedin") => request<{ url: string }>(`/api/connections/${platform}/start`),
-  connectSelect: (platform: "meta" | "linkedin", id: string) =>
+  removeApp: (platform: ConnPlatform) => request<Connections>(`/api/connections/apps/${platform}`, { method: "DELETE" }),
+  connectStart: (platform: ConnPlatform) => request<{ url: string }>(`/api/connections/${platform}/start`),
+  connectSelect: (platform: ConnPlatform, id: string) =>
     request<Connections>(`/api/connections/${platform}/select`, { method: "POST", body: JSON.stringify({ id }) }),
+  instagramManual: (access_token: string) =>
+    request<Connections>("/api/connections/instagram/manual", { method: "PUT", body: JSON.stringify({ access_token }) }),
   metaManual: (page_id: string, page_token: string, ig_user_id: string) =>
     request<Connections>("/api/connections/meta/manual", { method: "PUT", body: JSON.stringify({ page_id, page_token, ig_user_id }) }),
   linkedinManual: (access_token: string, org_id: string) =>
     request<Connections>("/api/connections/linkedin/manual", { method: "PUT", body: JSON.stringify({ access_token, org_id }) }),
-  testConnection: (platform: "meta" | "linkedin") =>
+  testConnection: (platform: ConnPlatform) =>
     request<{ ok: boolean; results?: Record<string, string>; error?: string }>(`/api/connections/${platform}/test`, { method: "POST" }),
-  disconnect: (platform: "meta" | "linkedin") => request<Connections>(`/api/connections/${platform}`, { method: "DELETE" }),
+  disconnect: (platform: ConnPlatform) => request<Connections>(`/api/connections/${platform}`, { method: "DELETE" }),
   generate: (kind?: "video" | "post", notes = "") =>
     request<{ ok: boolean; date: string }>("/api/generate", { method: "POST", body: JSON.stringify({ kind, notes }) }),
 };

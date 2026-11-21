@@ -227,6 +227,16 @@ Tokens are stored encrypted in the database. "Enter tokens manually" is there if
 
 The manual way (tokens in `.env`) and what each app needs:
 
+### Instagram only (no Facebook Page needed)
+Settings → Connections → **Instagram** → **Set up**:
+1. developers.facebook.com → **Create app** → use case **Manage messaging & content on Instagram**.
+2. **Instagram → API setup with Instagram login → Set up Instagram business login → Business login settings**:
+   add `https://<your-app>/api/connections/instagram/callback` as an OAuth redirect URI.
+3. Copy the **Instagram App ID / secret** (not the Facebook App ID) into the dashboard.
+4. **App roles → Roles → Instagram Testers**: add your account, accept the invite in Instagram.
+5. Click **Connect with Instagram**. The 60-day token renews automatically. If an Instagram account is connected
+   here, Instagram posts go through it (the Facebook connection below is then only used for the Facebook Page).
+
 ### Facebook + Instagram (one Meta app covers both)
 1. Convert Instagram to a **Business/Creator account** and link it to your **Facebook Page** (Instagram → Settings → Account type / Linked Page).
 2. At <https://developers.facebook.com>, create an app (type **Business**) and add the **Facebook Login for Business** and **Instagram Graph API** products.

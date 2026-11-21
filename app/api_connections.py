@@ -12,7 +12,7 @@ from . import auth, connections
 
 router = APIRouter(prefix="/api/connections")
 User = Depends(auth.require_user)
-PLATFORMS = ("meta", "linkedin")
+PLATFORMS = ("instagram", "meta", "linkedin")
 
 
 def _platform(p: str) -> str:
@@ -48,7 +48,8 @@ def delete_app(platform: str, _: str = User):
 def start(platform: str, _: str = User):
     """Returns the login URL; the dashboard sends the browser there."""
     try:
-        url = connections.meta_auth_url() if _platform(platform) == "meta" else connections.linkedin_auth_url()
+        url = {"meta": connections.meta_auth_url, "linkedin": connections.linkedin_auth_url,
+               "instagram": connections.instagram_auth_url}[_platform(platform)]()
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return {"url": url, "redirect_uri": connections.redirect_uri(platform)}
@@ -69,7 +70,8 @@ def callback(platform: str, code: str = "", state: str = "", error: str = "", er
     if not connections.check_state(state, platform):
         return done("error", "The login link expired or was not started from this dashboard. Please try again.")
     try:
-        choices = connections.meta_callback(code) if platform == "meta" else connections.linkedin_callback(code)
+        choices = {"meta": connections.meta_callback, "linkedin": connections.linkedin_callback,
+                   "instagram": connections.instagram_callback}[platform](code)
     except Exception as e:
         return done("error", str(e))
     return done("ok" if len(choices) == 1 else "choose")
@@ -84,8 +86,10 @@ def select(platform: str, body: SelectIn, _: str = User):
     try:
         if _platform(platform) == "meta":
             connections.meta_select(body.id)
-        else:
+        elif platform == "linkedin":
             connections.linkedin_select(body.id)
+        else:
+            raise RuntimeError("Nothing to choose for Instagram")
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return connections.status()
@@ -111,6 +115,19 @@ def meta_manual(body: MetaManualIn, _: str = User):
     return connections.status()
 
 
+class InstagramManualIn(BaseModel):
+    access_token: str = Field(min_length=20)
+
+
+@router.put("/instagram/manual")
+def instagram_manual(body: InstagramManualIn, _: str = User):
+    try:
+        connections.instagram_manual(body.access_token.strip())
+    except Exception as e:
+        raise HTTPException(400, f"Couldn't verify this token – {e}")
+    return connections.status()
+
+
 @router.put("/linkedin/manual")
 def linkedin_manual(body: LinkedInManualIn, _: str = User):
     m = re.search(r"(\d{3,})", body.org_id)  # accepts the number, a URN or the Page admin URL
@@ -127,8 +144,8 @@ def linkedin_manual(body: LinkedInManualIn, _: str = User):
 @router.post("/{platform}/test")
 def test(platform: str, _: str = User):
     try:
-        return {"ok": True, "results": connections.meta_test() if _platform(platform) == "meta"
-                else connections.linkedin_test()}
+        return {"ok": True, "results": {"meta": connections.meta_test, "linkedin": connections.linkedin_test,
+                                        "instagram": connections.instagram_test}[_platform(platform)]()}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

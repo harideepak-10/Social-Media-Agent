@@ -3,10 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, KeyRound, Link2, LogIn, Plug, RefreshCw, Unplug, XCircle } from "lucide-react";
-import { api, type Connections as TConn } from "../lib/api";
+import { api, type ConnPlatform, type Connections as TConn } from "../lib/api";
 import { Button, Card, Confirm, Field, Modal, inputCls, useToast } from "./ui";
 
-type P = "meta" | "linkedin";
+type P = ConnPlatform;
 
 function BrandIcon({ kind, size = 40 }: { kind: "facebook" | "instagram" | "linkedin"; size?: number }) {
   const style = { width: size, height: size };
@@ -41,7 +41,8 @@ export default function ConnectionsTab() {
   useEffect(() => {
     const result = params.get("result");
     if (!result) return;
-    const name = params.get("platform") === "meta" ? "Facebook & Instagram" : "LinkedIn";
+    const plat = params.get("platform");
+    const name = plat === "meta" ? "Facebook & Instagram" : plat === "instagram" ? "Instagram" : "LinkedIn";
     if (result === "ok") toast("ok", `${name} connected`);
     else if (result === "choose") toast("ok", "Logged in – now pick the Page to post to");
     else toast("error", `${name}: ${params.get("msg") || "connection failed"}`);
@@ -59,13 +60,85 @@ export default function ConnectionsTab() {
         {localUrl && (
           <div className="mt-3 flex gap-2 rounded-xl bg-amber-50 p-3 text-amber-900 ring-1 ring-amber-200">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            <span><b>PUBLIC_BASE_URL is {data.public_url}.</b> Login with Facebook/LinkedIn and Instagram posting need your public address (e.g. your Render URL) – set it in the environment settings first.</span>
+            <span><b>PUBLIC_BASE_URL is {data.public_url}.</b> Logging in with Instagram/Facebook/LinkedIn and Instagram posting need your public address (e.g. your Render URL) – set it in the environment settings first.</span>
           </div>
         )}
       </div>
+      <InstagramCard c={data} />
       <MetaCard c={data} />
       <LinkedInCard c={data} />
     </div>
+  );
+}
+
+// ── Instagram on its own (no Facebook Page needed) ─────────────────────────
+function InstagramCard({ c }: { c: TConn }) {
+  const ig = c.instagram;
+  const [appOpen, setAppOpen] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const start = useConnMutation(async () => { const { url } = await api.connectStart("instagram"); window.location.href = url; return null; });
+  const disconnect = useConnMutation(() => api.disconnect("instagram"), "Instagram disconnected");
+  const expiring = ig.expires_in_days !== null && ig.expires_in_days < 7;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3 border-b border-stone-100 p-4 sm:gap-4 sm:p-6">
+        <BrandIcon kind="instagram" />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-bold">Instagram</h2>
+          <p className="text-xs text-stone-500">Log in with your Instagram professional account – no Facebook Page needed. Posts, Reels and stats.</p>
+        </div>
+        <div className="w-full sm:w-auto"><ConnBadge on={ig.connected} source={ig.source} warn={ig.connected && expiring} /></div>
+      </div>
+      <div className="p-4 sm:p-6">
+        {ig.connected ? (
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Account icon={<BrandIcon kind="instagram" size={36} />} label="Instagram account" value={ig.username ? `@${ig.username}` : ig.ig_user_id}
+                sub={ig.account_type ? ig.account_type.replace("_", " ").toLowerCase() + " account" : `ID ${ig.ig_user_id}`} picture={ig.picture} />
+              <Account icon={<span className={clsx("grid size-9 place-items-center rounded-xl", expiring ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500")}><KeyRound className="size-4" /></span>}
+                label="Access" value={ig.expires_in_days === null ? "Set in .env" : `Valid for ${ig.expires_in_days} more days`}
+                sub="Renews automatically while the agent is running"
+                warn={expiring ? "Expiring soon – click Reconnect." : undefined} />
+            </div>
+            <ConnActions platform="instagram" onReconnect={ig.source !== "env" ? () => start.mutate(undefined) : undefined}
+              onDisconnect={ig.source === "env" ? undefined : () => setConfirm(true)} reconnecting={start.isPending} envNote={ig.source === "env"}
+              reconnectLabel="Reconnect / change account" />
+          </>
+        ) : (
+          <Steps
+            appDone={ig.app_configured} appLabel={ig.app_configured ? `Instagram app ${ig.app_id}` : "Add your Instagram app (one time)"} onApp={() => setAppOpen(true)}
+            connectLabel="Connect with Instagram" connectIcon={<BrandIcon kind="instagram" size={18} />} onConnect={() => start.mutate(undefined)} connecting={start.isPending}
+            onManual={() => setManual(true)} connectStep="Log in with your Instagram professional account" manualLabel="Have a token from the Meta dashboard? Paste it" />
+        )}
+      </div>
+      <AppModal open={appOpen} onClose={() => setAppOpen(false)} platform="instagram" redirect={ig.redirect_uri} current={ig.app_id}
+        title="Instagram app" idLabel="Instagram App ID" secretLabel="Instagram App secret"
+        steps={<>
+          <li>Open <Ext href="https://developers.facebook.com/apps">developers.facebook.com/apps</Ext> → <b>Create app</b> → use case <b>Manage messaging &amp; content on Instagram</b>.</li>
+          <li>In the app, open <b>Instagram → API setup with Instagram login</b>. Under <b>3. Set up Instagram business login</b> → <b>Business login settings</b>, paste the redirect URL below into <b>OAuth redirect URIs</b> and save.</li>
+          <li>Copy the <b>Instagram App ID</b> and <b>Instagram App secret</b> shown there (not the Facebook App ID) into the boxes below.</li>
+          <li>Under <b>App roles → Roles</b>, add your Instagram account as an <b>Instagram Tester</b> and accept the invite in Instagram (Settings → Website permissions → Apps and websites → Tester invites). Needed while the app is in development mode.</li>
+        </>} />
+      <ManualInstagram open={manual} onClose={() => setManual(false)} />
+      <Confirm open={confirm} title="Disconnect Instagram?" body="Approved content will no longer be posted to Instagram (test mode) until you connect again."
+        confirmLabel="Disconnect" variant="danger" onConfirm={() => disconnect.mutate(undefined)} onClose={() => setConfirm(false)} />
+    </Card>
+  );
+}
+
+function ManualInstagram({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [token, setToken] = useState("");
+  const save = useConnMutation(() => api.instagramManual(token.trim()), "Instagram connected");
+  return (
+    <Modal open={open} title="Paste an Instagram token" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={token.trim().length < 20} loading={save.isPending}
+          onClick={() => save.mutate(undefined, { onSuccess: onClose })}>Verify & connect</Button></>}>
+      <p className="text-sm text-stone-500">In the Meta app: <b>Instagram → API setup with Instagram login → 2. Generate access tokens</b> → <b>Add account</b> → <b>Generate token</b>. The account is checked before saving and the token renews automatically.</p>
+      <div className="mt-4"><Field label="Access token"><input type="password" value={token} onChange={(e) => setToken(e.target.value)} className={inputCls} autoComplete="new-password" /></Field></div>
+    </Modal>
   );
 }
 
@@ -85,7 +158,7 @@ function MetaCard({ c }: { c: TConn }) {
         <div className="flex -space-x-2"><BrandIcon kind="facebook" /><BrandIcon kind="instagram" /></div>
         <div className="min-w-0 flex-1">
           <h2 className="font-bold">Facebook Page + Instagram</h2>
-          <p className="text-xs text-stone-500">One Meta login connects your Facebook Page and the Instagram Business account linked to it.</p>
+          <p className="text-xs text-stone-500">One Meta login connects your Facebook Page and the Instagram account linked to it. Only needed if you also post to Facebook.</p>
         </div>
         <div className="w-full sm:w-auto"><ConnBadge on={m.connected} source={m.source} /></div>
       </div>
@@ -197,9 +270,9 @@ function ConnBadge({ on, source, warn }: { on: boolean; source: string; warn?: b
   );
 }
 
-function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect, connecting, onManual }: {
+function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect, connecting, onManual, connectStep, manualLabel }: {
   appDone: boolean; appLabel: string; onApp: () => void; connectLabel: string; connectIcon: ReactNode;
-  onConnect: () => void; connecting: boolean; onManual: () => void;
+  onConnect: () => void; connecting: boolean; onManual: () => void; connectStep?: string; manualLabel?: string;
 }) {
   return (
     <div className="space-y-3">
@@ -213,12 +286,12 @@ function Steps({ appDone, appLabel, onApp, connectLabel, connectIcon, onConnect,
         </li>
         <li className={clsx("flex flex-wrap items-center gap-3 rounded-xl p-3 ring-1", appDone ? "bg-white ring-stone-200" : "bg-stone-50 opacity-60 ring-stone-200/70")}>
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink-900 text-xs font-bold text-white">2</span>
-          <span className="flex-1 text-sm font-semibold">Log in and pick your company Page</span>
+          <span className="flex-1 text-sm font-semibold">{connectStep ?? "Log in and pick your company Page"}</span>
           <Button variant="dark" disabled={!appDone} loading={connecting} onClick={onConnect} icon={connectIcon}>{connectLabel}</Button>
         </li>
       </ol>
       <button onClick={onManual} className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-900">
-        <KeyRound className="size-3.5" /> Already have tokens? Enter them manually
+        <KeyRound className="size-3.5" /> {manualLabel ?? "Already have tokens? Enter them manually"}
       </button>
     </div>
   );
@@ -238,8 +311,8 @@ function Account({ icon, label, value, sub, picture, warn }: { icon: ReactNode; 
   );
 }
 
-function ConnActions({ platform, onReconnect, onDisconnect, reconnecting, envNote }: {
-  platform: P; onReconnect?: () => void; onDisconnect?: () => void; reconnecting: boolean; envNote?: boolean;
+function ConnActions({ platform, onReconnect, onDisconnect, reconnecting, envNote, reconnectLabel }: {
+  platform: P; onReconnect?: () => void; onDisconnect?: () => void; reconnecting: boolean; envNote?: boolean; reconnectLabel?: string;
 }) {
   const [result, setResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
   const test = useMutation({
@@ -251,7 +324,7 @@ function ConnActions({ platform, onReconnect, onDisconnect, reconnecting, envNot
     <div className="mt-4">
       <div className="flex flex-wrap gap-2">
         <Button icon={<RefreshCw className="size-4" />} loading={test.isPending} onClick={() => test.mutate()}>Test connection</Button>
-        {onReconnect && <Button icon={<LogIn className="size-4" />} loading={reconnecting} onClick={onReconnect}>Reconnect / change Page</Button>}
+        {onReconnect && <Button icon={<LogIn className="size-4" />} loading={reconnecting} onClick={onReconnect}>{reconnectLabel ?? "Reconnect / change Page"}</Button>}
         {onDisconnect && <Button variant="danger" icon={<Unplug className="size-4" />} onClick={onDisconnect}>Disconnect</Button>}
       </div>
       {envNote && <p className="mt-2 text-xs text-stone-500">Connected through values in the environment (.env). Connect here to manage it from the dashboard.</p>}

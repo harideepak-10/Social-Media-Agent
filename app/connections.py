@@ -1,4 +1,4 @@
-"""Social account connections (Facebook Page + Instagram via Meta, LinkedIn Company Page).
+"""Social account connections (Instagram on its own, Facebook Page + Instagram via Meta, LinkedIn Company Page).
 
 Connect from the dashboard (Settings → Connections):
   * "Connect with Facebook / LinkedIn" – OAuth using your own developer app (App ID + secret entered once), or
@@ -26,6 +26,9 @@ META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts",
                "instagram_content_publish", "business_management",
                "read_insights", "instagram_manage_insights"]   # reach / views on the Results page
 LINKEDIN_SCOPES = ["w_organization_social", "r_organization_social", "rw_organization_admin"]
+# "Instagram API with Instagram Login" – no Facebook Page needed
+INSTAGRAM_SCOPES = ["instagram_business_basic", "instagram_business_content_publish",
+                    "instagram_business_manage_insights"]
 
 
 # ── endpoints (overridable for testing) ────────────────────────────────────
@@ -40,6 +43,22 @@ def graph_video_base() -> str:
 
 def fb_dialog_base() -> str:
     return env("META_DIALOG_BASE", "https://www.facebook.com").rstrip("/")
+
+
+def ig_oauth_base() -> str:
+    return env("INSTAGRAM_OAUTH_BASE", "https://www.instagram.com").rstrip("/")
+
+
+def ig_api_base() -> str:
+    return env("INSTAGRAM_API_BASE", "https://api.instagram.com").rstrip("/")
+
+
+def ig_graph_root() -> str:
+    return env("INSTAGRAM_GRAPH_BASE", "https://graph.instagram.com").rstrip("/")
+
+
+def ig_graph_base() -> str:
+    return f"{ig_graph_root()}/{env('INSTAGRAM_GRAPH_VERSION', 'v21.0')}"
 
 
 def li_oauth_base() -> str:
@@ -101,6 +120,29 @@ def meta_creds() -> dict:
     return {}
 
 
+def instagram_creds() -> dict:
+    """Instagram connected directly (Instagram Login): {ig_user_id, access_token, username, …}."""
+    c = get("instagram")
+    if c and c.get("access_token"):
+        return {**c, "source": "dashboard"}
+    if env("INSTAGRAM_ACCESS_TOKEN") and env("INSTAGRAM_USER_ID"):
+        return {"access_token": env("INSTAGRAM_ACCESS_TOKEN"), "ig_user_id": env("INSTAGRAM_USER_ID"),
+                "username": "", "expires_at": None, "source": "env"}
+    return {}
+
+
+def instagram_target() -> dict:
+    """Where Instagram posts go: the direct Instagram login wins, else the Instagram linked to the Facebook Page.
+    Returns {ig_user_id, token, base, via} or {}."""
+    d = instagram_creds()
+    if d.get("ig_user_id"):
+        return {"ig_user_id": d["ig_user_id"], "token": d["access_token"], "base": ig_graph_base(), "via": "instagram"}
+    m = meta_creds()
+    if m.get("ig_user_id") and m.get("page_token"):
+        return {"ig_user_id": m["ig_user_id"], "token": m["page_token"], "base": graph_base(), "via": "facebook"}
+    return {}
+
+
 def linkedin_creds() -> dict:
     c = get("linkedin")
     if c and c.get("access_token"):
@@ -115,6 +157,8 @@ def app_creds(platform: str) -> dict:
     c = get(f"{platform}_app") or {}
     if platform == "meta":
         return {"id": c.get("id") or env("META_APP_ID"), "secret": c.get("secret") or env("META_APP_SECRET")}
+    if platform == "instagram":
+        return {"id": c.get("id") or env("INSTAGRAM_APP_ID"), "secret": c.get("secret") or env("INSTAGRAM_APP_SECRET")}
     return {"id": c.get("id") or env("LINKEDIN_CLIENT_ID"), "secret": c.get("secret") or env("LINKEDIN_CLIENT_SECRET")}
 
 
@@ -239,6 +283,92 @@ def meta_test() -> dict:
     return out
 
 
+# ── Instagram on its own (Instagram API with Instagram Login) ───────────────
+def instagram_auth_url() -> str:
+    app = app_creds("instagram")
+    if not app["id"]:
+        raise RuntimeError("Add your Instagram App ID and secret first")
+    q = {"client_id": app["id"], "redirect_uri": redirect_uri("instagram"), "response_type": "code",
+         "scope": ",".join(INSTAGRAM_SCOPES), "state": make_state("instagram")}
+    return f"{ig_oauth_base()}/oauth/authorize?{urlencode(q)}"
+
+
+def _ig_profile(c: httpx.Client, token: str) -> dict:
+    return _ok(c.get(f"{ig_graph_base()}/me", params={
+        "fields": "user_id,username,name,profile_picture_url,account_type", "access_token": token}), "Instagram account")
+
+
+def _ig_save(token: str, expires_in: int | None, profile: dict, method: str) -> dict:
+    data = {"access_token": token, "ig_user_id": str(profile.get("user_id") or profile.get("id") or ""),
+            "username": profile.get("username", ""), "name": profile.get("name", ""),
+            "picture": profile.get("profile_picture_url", ""), "account_type": profile.get("account_type", ""),
+            "expires_at": int(time.time()) + int(expires_in or 60 * 86400), "token_at": int(time.time()),
+            "connected_at": int(time.time()), "method": method}
+    if not data["ig_user_id"]:
+        raise RuntimeError("Instagram didn't return the account ID – is it a professional (Business/Creator) account?")
+    save("instagram", data)
+    return data
+
+
+def instagram_callback(code: str) -> list[dict]:
+    """code → short-lived token → long-lived token (60 days, renewed automatically) → account."""
+    app = app_creds("instagram")
+    code = code.split("#")[0]
+    with httpx.Client(timeout=60) as c:
+        short = _ok(c.post(f"{ig_api_base()}/oauth/access_token", data={
+            "client_id": app["id"], "client_secret": app["secret"], "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri("instagram"), "code": code}), "Instagram login")
+        if isinstance(short.get("data"), list) and short["data"]:  # some API versions wrap the answer
+            short = short["data"][0]
+        long = _ok(c.get(f"{ig_graph_root()}/access_token", params={
+            "grant_type": "ig_exchange_token", "client_secret": app["secret"],
+            "access_token": short["access_token"]}), "Instagram long-lived token")
+        profile = _ig_profile(c, long["access_token"])
+    data = _ig_save(long["access_token"], long.get("expires_in"), profile, "oauth")
+    return [{"id": data["ig_user_id"], "name": data["username"]}]
+
+
+def instagram_manual(access_token: str) -> dict:
+    """A token from the App Dashboard (Instagram → API setup with Instagram login → Generate token)."""
+    with httpx.Client(timeout=30) as c:
+        profile = _ig_profile(c, access_token)
+    return _ig_save(access_token, None, profile, "manual")
+
+
+def instagram_refresh_if_needed(force: bool = False) -> bool:
+    """Instagram tokens last 60 days; refresh (allowed once the token is 24 h old) when < 20 days are left."""
+    c = get("instagram")
+    if not c or not c.get("access_token"):
+        return False
+    left = (c.get("expires_at") or 0) - time.time()
+    if not force and left > 20 * 86400:
+        return False
+    if time.time() - (c.get("token_at") or 0) < 86400:
+        return False
+    with httpx.Client(timeout=60) as h:
+        tok = _ok(h.get(f"{ig_graph_root()}/refresh_access_token", params={
+            "grant_type": "ig_refresh_token", "access_token": c["access_token"]}), "Instagram token refresh")
+    c.update(access_token=tok["access_token"], expires_at=int(time.time()) + int(tok.get("expires_in", 5184000)),
+             token_at=int(time.time()))
+    save("instagram", c)
+    return True
+
+
+def instagram_test() -> dict:
+    c = instagram_creds()
+    if not c:
+        raise RuntimeError("Not connected")
+    try:
+        instagram_refresh_if_needed()
+    except Exception:
+        pass
+    c = instagram_creds()
+    with httpx.Client(timeout=30) as h:
+        p = _ig_profile(h, c["access_token"])
+    kind = (p.get("account_type") or "").replace("_", " ").title()
+    return {"instagram": f"@{p.get('username', '?')}{f' ({kind})' if kind else ''} – ready to post"}
+
+
 # ── LinkedIn (Company Page) ───────────────────────────────────────────────
 def _li_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "LinkedIn-Version": li_version(), "X-Restli-Protocol-Version": "2.0.0"}
@@ -341,11 +471,22 @@ def linkedin_test() -> dict:
 
 # ── overview for the dashboard ────────────────────────────────────────────
 def status() -> dict:
-    m, l = meta_creds(), linkedin_creds()
+    m, l, ig = meta_creds(), linkedin_creds(), instagram_creds()
     now = time.time()
     li_exp = l.get("expires_at")
+    ig_exp = ig.get("expires_at")
     return {
         "public_url": env("PUBLIC_BASE_URL", "http://localhost:8000"),
+        "instagram": {
+            "app_configured": bool(app_creds("instagram")["id"] and app_creds("instagram")["secret"]),
+            "app_id": app_creds("instagram")["id"] or "",
+            "redirect_uri": redirect_uri("instagram"),
+            "connected": bool(ig), "source": ig.get("source", ""), "method": ig.get("method", ""),
+            "ig_user_id": ig.get("ig_user_id", ""), "username": ig.get("username", ""),
+            "picture": ig.get("picture", ""), "account_type": ig.get("account_type", ""),
+            "expires_in_days": int((ig_exp - now) / 86400) if ig_exp else None,
+            "connected_at": ig.get("connected_at"),
+        },
         "meta": {
             "app_configured": bool(app_creds("meta")["id"] and app_creds("meta")["secret"]),
             "app_id": app_creds("meta")["id"] or "",

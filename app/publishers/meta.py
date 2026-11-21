@@ -39,8 +39,8 @@ def fb_configured() -> bool:
 
 
 def ig_configured() -> bool:
-    c = _creds()
-    return bool(c.get("ig_user_id") and c.get("page_token"))
+    from ..connections import instagram_target
+    return bool(instagram_target())
 
 
 def facebook_publish(kind: str, media: Path, caption: str) -> str:
@@ -61,10 +61,17 @@ def facebook_publish(kind: str, media: Path, caption: str) -> str:
 
 
 def instagram_publish(kind: str, media: Path, caption: str, url: str | None = None) -> str:
-    from ..connections import graph_base
-    c_ = _creds()
-    ig, token = c_["ig_user_id"], c_["page_token"]
-    base = f"{graph_base()}/{ig}"
+    """Works the same for both logins: graph.instagram.com (Instagram login) or graph.facebook.com (via Page)."""
+    from ..connections import instagram_refresh_if_needed, instagram_target
+    try:
+        instagram_refresh_if_needed()
+    except Exception:
+        pass
+    t = instagram_target()
+    if not t:
+        raise RuntimeError("Instagram is not connected")
+    ig, token, host = t["ig_user_id"], t["token"], t["base"]
+    base = f"{host}/{ig}"
     url = url or public_url(media)  # cloud storage URL when available, else served by this app
     if "localhost" in url or "127.0.0.1" in url:
         raise RuntimeError("Instagram needs a public media URL – set PUBLIC_BASE_URL to your deployed app URL")
@@ -77,7 +84,7 @@ def instagram_publish(kind: str, media: Path, caption: str, url: str | None = No
         container = _check(c.post(f"{base}/media", data=params))["id"]
         # wait until Instagram has processed the media
         for _ in range(60):
-            st = _check(c.get(f"{graph_base()}/{container}",
+            st = _check(c.get(f"{host}/{container}",
                               params={"fields": "status_code,status", "access_token": token}))
             if st.get("status_code") == "FINISHED":
                 break
