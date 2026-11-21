@@ -24,7 +24,7 @@ from .. import llm, progress
 from .. import storage
 from ..config import ASSETS_DIR, company, settings
 from ..generators import browser, ffmpeg, tts
-from . import assets, festive, icons, rotation, visuals
+from . import assets, brandfix, festive, icons, rotation, visuals
 from .catalog import ICONS, VIDEO_THEMES
 
 log = logging.getLogger(__name__)
@@ -77,6 +77,7 @@ Return JSON: {{"title": "…", "intro": {{…}}, "scenes": [{{…}}], "grid": {{
  "captions": {{"instagram": "…", "facebook": "…", "linkedin": "…"}}, "hashtags": ["#…"]}}"""
     data = llm.complete_json(prompt, SYSTEM, max_tokens=6000, design=True,
                              images=[sheet] if sheet and llm.vision_available() else None)
+    data = brandfix.fix_obj(data)
     valid = {f"B{b['id']}": b for b in blocks}
     scenes = []
     for sc in data.get("scenes") or []:
@@ -571,4 +572,4 @@ def rewrite_part(board: dict, part: str, instruction: str) -> dict:
         "Keep the same JSON keys and roughly the same lengths (headlines stay short, voice = 1-2 spoken "
         "sentences). Badges/numbers must stay factual – don't invent figures. Return the JSON object only.",
         "You are a senior video copywriter.", max_tokens=1200)
-    return {k: data.get(k, v) for k, v in fields.items()}
+    return brandfix.fix_obj({k: data.get(k, v) for k, v in fields.items()})

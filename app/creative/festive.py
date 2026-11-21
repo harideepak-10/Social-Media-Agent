@@ -28,7 +28,7 @@ from PIL import Image, ImageStat
 
 from .. import llm, progress, storage
 from ..config import ASSETS_DIR, company
-from . import assets, rotation
+from . import assets, brandfix, rotation
 
 log = logging.getLogger(__name__)
 W, H_ = 1080, 1350
@@ -688,7 +688,7 @@ def generate(plan: dict, day: date, item_id: int, product: dict | None = None, o
     kit = kit_for(festival + " " + plan.get("topic", ""))
     layout = _pick_layout(own)
     progress.report(f"Writing the {festival or 'festival'} greeting", 20)
-    data = llm.complete_json(_brief(plan, festival, kit, layout), SYSTEM, max_tokens=2500, design=True)
+    data = brandfix.fix_obj(llm.complete_json(_brief(plan, festival, kit, layout), SYSTEM, max_tokens=2500, design=True))
     if data.get("kit") in KITS:
         kit = data["kit"]
     p = dict(PALETTES[kit])

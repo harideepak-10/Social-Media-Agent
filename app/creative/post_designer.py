@@ -18,7 +18,7 @@ from .. import llm, progress
 from .. import storage
 from ..config import company
 from ..generators import browser
-from . import assets, rotation
+from . import assets, brandfix, rotation
 from .catalog import POST_FORMATS, POST_THEMES
 
 log = logging.getLogger(__name__)
@@ -58,7 +58,8 @@ RULES
 - Build ALL visuals with HTML/CSS/inline SVG: UI mocks, documents, chat bubbles, phones, charts, icons,
   line art. They must look realistic and polished (real-looking sample data: names, items, amounts in ₹ for
   India). Sample data must look illustrative, never like real customer data.
-- Use only these images if provided: logo.png (always include it once, small, ~44-64px tall),
+- Use only these images if provided: logo.png (always include it once, small, ~44-64px tall – it already
+  contains the brand name, so never type the brand name as a text logo/wordmark),
   shot1.png… (real product screenshots), ai1.png… (photos). No other external images. Fonts: Google Fonts
   <link> only for the theme fonts. No JavaScript.
 - Never invent statistics, client names, awards, testimonials or prices. Numbers inside mock UIs are fine.
@@ -139,6 +140,26 @@ _CHECK_JS = """
     if (r.right > W - 24 || r.bottom > H - 16 || r.left < 16 || r.top < 12) issues.push(`text too close to/over the edge: "${label}"`);
     if ((s.overflow === 'hidden' || s.textOverflow === 'ellipsis') && (e.scrollHeight > e.clientHeight + 3 || e.scrollWidth > e.clientWidth + 3)) issues.push(`text is clipped: "${label}"`);
   }
+  // letters cut off by a clipping parent (overflow hidden / clip-path) even when the element itself looks fine
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    const txt = n.textContent.trim();
+    if (txt.length < 2 || !n.parentElement) continue;
+    const ps = getComputedStyle(n.parentElement);
+    if (ps.visibility === 'hidden' || ps.display === 'none' || parseFloat(ps.opacity) === 0) continue;
+    const rg = document.createRange(); rg.selectNodeContents(n);
+    const r = rg.getBoundingClientRect();
+    if (!r.width) continue;
+    for (let a = n.parentElement; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.overflow === 'visible' && cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+      const ar = a.getBoundingClientRect();
+      if (r.right > ar.right + 2 || r.left < ar.left - 2 || r.bottom > ar.bottom + 4 || r.top < ar.top - 4) {
+        issues.push(`letters are cut off by a container: "${txt.slice(0, 40)}"`); break;
+      }
+    }
+  }
   return [...new Set(issues)].slice(0, 12);
 }
 """
@@ -218,10 +239,14 @@ def _review(preview: Path) -> list[str]:
     """Let the model look at the rendered poster like an art director would."""
     if not llm.vision_available():
         return []
+    brand = company().get("name", "")
     data = llm.complete_json(
         "You are reviewing this social media poster before it is published. Be strict but practical. "
+        f"The brand is spelled exactly '{brand}' – any other spelling or a word with missing/cut-off letters is a "
+        "problem. Read every word letter by letter. "
         "Return JSON {\"score\": 1-10, \"problems\": [\"concrete visual problems only: overlapping or clipped "
-        "text, unreadable/low-contrast text, awkward empty areas, misaligned elements, broken mockups, typos\"]}. "
+        "text, letters cut off, misspelled words, unreadable/low-contrast text, awkward empty areas, misaligned "
+        "elements, broken mockups\"]}. "
         "If it is publish-ready, return an empty problems list.",
         "You are a meticulous senior art director.", max_tokens=800, images=[preview])
     probs = [p for p in data.get("problems", []) if isinstance(p, str)]
@@ -248,6 +273,9 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
     html = data.get("html", "")
     if "<html" not in html.lower():
         raise RuntimeError("design model did not return HTML")
+    html, fixed = brandfix.fix_html(html)
+    if fixed:
+        log.info("post #%s brand name fixed: %s", item_id, fixed)
 
     for img in (data.get("ai_images") or [])[:2] if ai_ok else []:
         fname = Path(img.get("file", "ai1.png")).name
@@ -261,11 +289,13 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
         if review:
             progress.report("AI is reviewing the rendered post", 66 + round_ * 12)
         problems = issues + (_review(preview) if review else [])
+        if (work / "logo.png").exists() and "logo.png" not in html:
+            problems.append("the logo image (logo.png) is not used – add it once; never type the brand name as a text logo")
         if not problems:
             break
         log.info("post #%s round %s fixing: %s", item_id, round_ + 1, problems)
         progress.report(f"Fixing design issues (round {round_ + 1})", 70 + round_ * 12)
-        html = _fix(html, problems, preview, fmt, theme_name)
+        html = brandfix.fix_html(_fix(html, problems, preview, fmt, theme_name))[0]
         issues = _render(html, work, preview)
 
     out = storage.poster_path(day, item_id, plan, fmt)
@@ -275,6 +305,6 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
     tags = [t if t.startswith("#") else f"#{t}" for t in data.get("hashtags", [])]
     design = {"headline": data.get("headline", ""), "format": fmt, "theme": theme_name,
               "product": (product or {}).get("name", "")}
-    return {"copy": {"captions": data.get("captions", {}), "hashtags": tags, **design},
+    return {"copy": {"captions": brandfix.fix_captions(data.get("captions", {})), "hashtags": tags, **design},
             "media": out, "thumb": out, "hashtags": " ".join(tags),
             "script_json": json.dumps(design, ensure_ascii=False, indent=2)}
