@@ -224,6 +224,38 @@ def capture_scene(url: str, out: Path, orientation: str = "vertical", scroll: fl
     return out, 0.0, end_y / full_h if full_h else 0.0
 
 
+_DESIGN_JS = r"""
+() => {
+  const cs = e => getComputedStyle(e);
+  const clear = c => !c || c === 'transparent' || /rgba\(\d+, \d+, \d+, 0(\.0+)?\)/.test(c);
+  const vis = e => { const r = e.getBoundingClientRect(); const s = cs(e);
+    return r.width > 0 && r.height > 0 && r.top < 2400 && s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > .3; };
+  const bgAt = (x, y) => { let e = document.elementFromPoint(x, y);
+    while (e) { const c = cs(e).backgroundColor; if (!clear(c)) return c; e = e.parentElement; }
+    const b = cs(document.body).backgroundColor; return clear(b) ? 'rgb(255, 255, 255)' : b; };
+  const bgs = [];
+  for (let y = 60; y < innerHeight; y += 110) for (let x = 40; x < innerWidth; x += 150) bgs.push(bgAt(x, y));
+  scrollTo(0, innerHeight); for (let y = 60; y < innerHeight; y += 160) for (let x = 40; x < innerWidth; x += 200) bgs.push(bgAt(x, y));
+  scrollTo(0, 0);
+  const font = e => e ? { family: cs(e).fontFamily, weight: cs(e).fontWeight, size: cs(e).fontSize,
+    transform: cs(e).textTransform, letter: cs(e).letterSpacing, color: cs(e).color } : null;
+  const h = [...document.querySelectorAll('h1,h2')].find(vis);
+  const p = [...document.querySelectorAll('p,li')].find(e => vis(e) && e.innerText.trim().length > 40);
+  const btn = [...document.querySelectorAll('a,button,[class*="btn"],[class*="button"]')].find(e => {
+    if (!vis(e)) return false; const r = e.getBoundingClientRect(); const t = (e.innerText || '').trim();
+    return !clear(cs(e).backgroundColor) && t.length > 1 && t.length < 40 && r.height >= 28 && r.height < 90 && r.width < 420; });
+  const card = [...document.querySelectorAll('div,section,article,li')].find(e => {
+    if (!vis(e)) return false; const s = cs(e); const r = e.getBoundingClientRect();
+    return r.width > 180 && r.height > 110 && r.width < innerWidth * .9 && parseFloat(s.borderTopLeftRadius) >= 4 &&
+           (s.boxShadow !== 'none' || !clear(s.backgroundColor) || s.borderTopWidth !== '0px'); });
+  return { bgs, heading: font(h), body: font(p),
+    button: btn ? { bg: cs(btn).backgroundColor, color: cs(btn).color, radius: cs(btn).borderTopLeftRadius,
+                    text: (btn.innerText || '').trim().slice(0, 30), weight: cs(btn).fontWeight } : null,
+    card: card ? { bg: cs(card).backgroundColor, radius: cs(card).borderTopLeftRadius,
+                   shadow: cs(card).boxShadow !== 'none', border: cs(card).borderTopWidth !== '0px' ? cs(card).borderTopColor : '' } : null };
+}
+"""
+
 _BRAND_JS = """
 () => {
   const meta = n => (document.querySelector(`meta[property="${n}"],meta[name="${n}"]`) || {}).content || '';
@@ -255,12 +287,25 @@ def _vivid(rgb) -> bool:
     return mx - mn > 50 and 40 < mx  # saturated, not grey/white/black
 
 
-def brand_info(url: str) -> dict:
-    """Name, description and main brand colours of any website (read in a real browser)."""
+def brand_info(url: str, hero: Path | None = None) -> dict:
+    """Name, description, brand colours and the design system (backgrounds, text colours, fonts, buttons,
+    corner radius) of any website, read in a real browser. `hero`: save an above-the-fold screenshot there."""
+    design = {}
     with browser_context(viewport={"width": 1366, "height": 900}) as ctx:
         page = ctx.new_page()
         open_page(page, url)
         data = page.evaluate(_BRAND_JS)
+        try:
+            design = page.evaluate(_DESIGN_JS) or {}
+        except Exception as e:
+            log.warning("design detection failed on %s: %s", url, e)
+        if hero:
+            try:
+                page.evaluate("scrollTo(0, 0)")
+                page.wait_for_timeout(400)
+                page.screenshot(path=str(hero), type="jpeg", quality=80)
+            except Exception as e:
+                log.warning("hero screenshot failed on %s: %s", url, e)
     weights: dict[tuple, float] = {}
     for c, area in data.get("colors", []):
         rgb = _parse_rgb(c)
@@ -284,7 +329,8 @@ def brand_info(url: str) -> dict:
                      tuple(int(v * 0.55) for v in primary))
     return {"site_name": data.get("site_name", ""), "title": data.get("title", ""),
             "description": data.get("description", ""),
-            "brand_colors": {"primary": to_hex(primary), "secondary": to_hex(secondary), "text": "#FFFFFF"}}
+            "brand_colors": {"primary": to_hex(primary), "secondary": to_hex(secondary), "text": "#FFFFFF"},
+            "design": design}
 
 
 def _merge_state(old: dict, new: dict) -> dict:

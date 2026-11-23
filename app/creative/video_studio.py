@@ -103,12 +103,12 @@ def _e(s) -> str:
 
 def _head(theme: dict, size: tuple[int, int]) -> str:
     w, h = size
-    fams = {theme["heading"], theme["body"]}
-    link = "https://fonts.googleapis.com/css2?" + "&".join(
-        f"family={f.replace(' ', '+')}:wght@400;500;600;700;800" for f in fams) + "&display=swap"
+    fams = dict.fromkeys([theme["heading"], theme["body"]])  # one link each: an unknown font can't break the other
+    links = "".join(f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={f.replace(" ", "+")}'
+                    f':wght@400;500;600;700;800&display=swap">' for f in fams)
     vert = h > w
     t = theme
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="{link}">
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">{links}
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{width:{w}px;height:{h}px;overflow:hidden;background:{t['bg']};color:{t['ink']};
@@ -166,7 +166,7 @@ h1{{font-family:'{t['heading']}',{'Georgia,serif' if t['serif'] else "'Segoe UI'
 .card b{{font-size:{26 if vert else 23}px}}
 .card p{{font-size:{20 if vert else 17}px;color:{t['muted']};line-height:1.35}}
 .btn{{display:inline-block;padding:20px 40px;border-radius:99px;background:linear-gradient(90deg,{t['accent']},{t['accent2']});
- color:{'#111' if t['logo'] == 'light' else '#fff'};font-weight:800;font-size:{30 if vert else 26}px;box-shadow:0 20px 60px {t['accent']}55}}
+ color:{t.get('btn_text') or ('#111' if t['logo'] == 'light' else '#fff')};font-weight:800;font-size:{30 if vert else 26}px;box-shadow:0 20px 60px {t['accent']}55}}
 </style></head>"""
 
 
@@ -397,7 +397,7 @@ def _audio_track(segments: list[tuple[Path | None, float, float]], total: float,
 
 def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], product_name: str,
           orientations: list[str], voice: bool, voice_name: str | None = None) -> dict[str, Path]:
-    theme = VIDEO_THEMES[theme_name]
+    theme = board.get("_theme_spec") or VIDEO_THEMES.get(theme_name) or VIDEO_THEMES["amber_noir"]
     vcfg = settings().get("video") or {}
     fps = int(vcfg.get("fps", 30))
     logo = assets.brand_logo(company())
@@ -474,7 +474,8 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
     return final
 
 
-def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict | None) -> dict:
+def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict | None,
+             theme_spec: dict | None = None) -> dict:
     vcfg = settings().get("video") or {}
     work = storage.work_dir("video", item_id)
     voice = bool(vcfg.get("voiceover", True))
@@ -496,6 +497,8 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
 
     progress.report(f"AI is writing the storyboard from {len(cap['blocks'])} screens", 25)
     board = storyboard(plan, product, cap, work, voice)
+    if theme_spec:  # "Create from URL": the website's own colours and fonts (kept for later edits/rebuilds)
+        board["_theme_spec"] = theme_spec
     if plan.get("festive_frame"):
         try:  # a short animated festival greeting opens the video
             board["festive"] = festive.video_greeting(plan, plan["festive_frame"])

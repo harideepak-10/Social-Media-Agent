@@ -11,7 +11,8 @@ from ..config import settings
 from ..generators import post as simple_post
 from ..generators import video as simple_video
 from .. import progress
-from . import assets, festive, post_designer, rotation, video_studio, visuals
+from ..config import company
+from . import assets, festive, post_designer, rotation, sitetheme, video_studio, visuals
 
 log = logging.getLogger(__name__)
 
@@ -19,13 +20,18 @@ log = logging.getLogger(__name__)
 def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True) -> dict:
     """Returns the generator result plus 'format', 'theme', 'product', 'alt', 'warning'."""
     product = plan.get("product")
+    site = None if own else sitetheme.build((company() or {}).get("design") or {}, (company() or {}).get("brand_colors"))
     try:
         if kind == "video":
-            theme = rotation.pick_video_theme(own)
-            gen = video_studio.generate(plan, day, item_id, theme, product)
-            gen.update(format="promo", theme=theme)
+            if site:
+                gen = video_studio.generate(plan, day, item_id, "website", product, theme_spec=site[1])
+                gen.update(format="promo", theme="website")
+            else:
+                theme = rotation.pick_video_theme(own)
+                gen = video_studio.generate(plan, day, item_id, theme, product)
+                gen.update(format="promo", theme=theme)
         else:
-            gen = _post(plan, day, item_id, product, own)
+            gen = _post(plan, day, item_id, product, own, site[0] if site else None)
         gen.update(product=(product or {}).get("name", ""), warning="")
         return gen
     except Exception as e:
@@ -40,7 +46,7 @@ def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True) -> 
         return gen
 
 
-def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool) -> dict:
+def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool, site_theme: dict | None = None) -> dict:
     source = plan["source"]
     if source == "festival" or plan.get("festival"):
         # festival greetings use the dedicated designer (photo or illustrated scene + script lettering)
@@ -72,11 +78,12 @@ def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool) 
         shots = sorted(cap["blocks"], key=lambda b: -(b["w"] * b["h"]))[:2]
         if not shots:
             fmt = rotation.pick_post_format(source, available - {"shot"}, own)
-    theme = rotation.pick_post_theme(fmt, own)
+    theme = "website" if site_theme else rotation.pick_post_theme(fmt, own)
     review = (settings().get("post") or {}).get("self_review", True)
     log.info("post #%s: format=%s theme=%s product=%s", item_id, fmt, theme, (product or {}).get("name"))
     try:
-        gen = post_designer.generate(plan, day, item_id, fmt, theme, product, shots, review=review)
+        gen = post_designer.generate(plan, day, item_id, fmt, theme, product, shots, review=review,
+                                     theme_spec=site_theme)
     finally:
         shutil.rmtree(storage.WORK_DIR / f"cap_{item_id}", ignore_errors=True)
     gen.update(format=fmt, theme=theme, alt=None)

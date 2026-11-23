@@ -166,17 +166,21 @@ def brand_for_url(url: str, force: bool = False) -> dict:
     """Work out the brand (name, tagline, audience, colours) of any website. Cached per URL."""
     from . import browser
 
-    cache = CACHE_DIR / f"brand_{hashlib.md5(url.encode()).hexdigest()[:12]}.json"
+    key = hashlib.md5(url.encode()).hexdigest()[:12]
+    cache = CACHE_DIR / f"brand_{key}.json"
+    hero = CACHE_DIR / f"brand_{key}_hero.jpg"
     if cache.exists() and not force:
-        return json.loads(cache.read_text(encoding="utf-8"))
+        cached = json.loads(cache.read_text(encoding="utf-8"))
+        if cached.get("design_v") == 2:  # older cache entries have no design system yet -> read the site again
+            return cached
     try:
-        info = browser.brand_info(url)
+        info = browser.brand_info(url, hero=hero)
     except browser.LoginRequired:
         raise
     except Exception as e:
         log.warning("brand detection failed for %s: %s", url, e)
         info = {"site_name": "", "title": "", "description": "",
-                "brand_colors": settings().get("company", {}).get("brand_colors", {})}
+                "brand_colors": settings().get("company", {}).get("brand_colors", {}), "design": {}}
     site = website.summary(url, max_chars=4000)
     if not site:
         raise RuntimeError(f"Could not read any content from {url} – check the link opens in a browser")
@@ -207,6 +211,9 @@ Identify this website's brand for a social media campaign. Return JSON:
         "call_to_action": data.get("call_to_action") or f"Visit {host}",
         "brand_colors": info["brand_colors"],
         "logo_path": "",
+        "design": info.get("design") or {},          # the site's own look: colours, fonts, buttons, radius
+        "hero": str(hero) if hero.exists() else "",  # homepage screenshot the designer matches
+        "design_v": 2,
     }
     cache.write_text(json.dumps(brand, ensure_ascii=False, indent=2), encoding="utf-8")
     return brand

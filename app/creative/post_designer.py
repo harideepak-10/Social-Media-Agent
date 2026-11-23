@@ -71,12 +71,33 @@ RULES
 """
 
 
-def _font_link(theme: dict) -> str:
-    fams = []
+def _font_links(theme: dict) -> str:
+    """One <link> per family: a font Google doesn't have (a website's own font) must not break the other."""
+    out, seen = [], set()
     for key in ("heading_font", "body_font"):
         name, _, weights = theme[key].partition(":")
-        fams.append(f"family={name.replace(' ', '+')}:wght@{weights.replace(',', ';') or '400'}")
-    return f"https://fonts.googleapis.com/css2?{'&'.join(fams)}&display=swap"
+        if name in seen:
+            continue
+        seen.add(name)
+        ws = sorted({int(w) for w in (weights or "400").replace(";", ",").split(",") if w.strip().isdigit()})
+        fam = f"family={name.replace(' ', '+')}:wght@{';'.join(map(str, ws))}"
+        out.append(f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?{fam}&display=swap">')
+    return "\n".join(out)
+
+
+def _site_block(theme: dict) -> str:
+    """Extra rules when the post is for another website ("Create from URL"): match THEIR design."""
+    if not theme.get("_site"):
+        return ""
+    return f"""
+DESIGN SOURCE – IMPORTANT: this post is for the client's website, so it must look like THEIR brand, not like
+the Krypsos reference styles above. {"The attached image is a screenshot of their homepage – match its look. " if theme.get("_hero") else ""}
+Use exactly their palette (the Palette line above), their fonts (with a similar fallback, e.g. '{theme['heading_font'].split(':')[0]}',
+{'Georgia, serif' if theme.get('_serif') else 'Inter, Arial, sans-serif'}), corner radius about {theme.get('_radius', 12)}px on cards,
+buttons/pills {'fully rounded' if theme.get('_btn_radius', 0) >= 18 else f"with {theme.get('_btn_radius', 8)}px corners"} in {theme['accent']}
+with {theme.get('_btn_text', '#FFFFFF')} text{', headings in UPPERCASE' if theme.get('_uppercase') else ''}. Keep their spacing, imagery
+feel and level of decoration (minimal sites stay minimal). Recreate UI mock-ups in their style.
+"""
 
 
 def _brief(plan: dict, fmt: str, theme_name: str, theme: dict, product: dict | None, shots: list[dict],
@@ -104,7 +125,7 @@ FORMAT: {fmt} — {f['label']}
 THEME: {theme_name} — {t['mood']}
 Palette: bg {t['bg']}, surface {t['surface']}, ink {t['ink']}, muted {t['muted']}, accent {t['accent']}, accent2 {t['accent2']}
 Fonts: headline "{t['heading_font'].split(':')[0]}", body "{t['body_font'].split(':')[0]}" — load with
-<link rel="stylesheet" href="{_font_link(t)}">
+{_font_links(t)}{_site_block(t)}
 Logo file: logo.png ({'boxed: place it on a small white rounded chip' if t.get('_boxed') else 'transparent, already coloured for this background'})
 Product screenshots available: {shot_lines or 'none'}
 Photo generation: {'available — you may request up to 2 photos (ai1.png, ai2.png) via ai_images' if ai_ok else 'NOT available — do not use photos'}
@@ -254,9 +275,12 @@ def _review(preview: Path) -> list[str]:
 
 
 def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, product: dict | None,
-             shots: list[dict] | None = None, review: bool = True) -> dict:
+             shots: list[dict] | None = None, review: bool = True, theme_spec: dict | None = None) -> dict:
     work = storage.work_dir("post", item_id)
-    theme = dict(POST_THEMES[theme_name])
+    theme = dict(theme_spec or POST_THEMES[theme_name])
+    hero = Path(company().get("hero") or "") if theme.get("_site") else None
+    hero = hero if hero and hero.is_file() and llm.vision_available() else None
+    theme["_hero"] = bool(hero)
 
     logo = assets.brand_logo(company())
     if logo:
@@ -269,7 +293,7 @@ def generate(plan: dict, day: date, item_id: int, fmt: str, theme_name: str, pro
 
     brief = _brief(plan, fmt, theme_name, theme, product, shots, ai_ok, day)
     progress.report(f"AI art director is designing the post ({theme_name.replace('_', ' ')})", 25)
-    data = llm.complete_json(brief, STYLE_GUIDE, max_tokens=14000, design=True)
+    data = llm.complete_json(brief, STYLE_GUIDE, max_tokens=14000, design=True, images=[hero] if hero else None)
     html = data.get("html", "")
     if "<html" not in html.lower():
         raise RuntimeError("design model did not return HTML")
