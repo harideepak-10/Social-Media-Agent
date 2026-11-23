@@ -85,6 +85,12 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/ping", include_in_schema=False)
+def ping():
+    """Public and instant: the dashboard's loading screen calls this until the (sleeping) agent answers."""
+    return {"ok": True}
+
+
 @classic.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, _: str = Depends(auth)):
     today = pipeline.today()

@@ -64,7 +64,8 @@ def callback(platform: str, code: str = "", state: str = "", error: str = "", er
     """Facebook / LinkedIn send the browser back here after login (no dashboard token on this request,
     so it's protected by the signed `state` instead)."""
     _platform(platform)
-    back = "/settings?tab=connections&platform=" + platform
+    from .config import frontend_url
+    back = frontend_url() + "/settings?tab=connections&platform=" + platform  # back to the dashboard (it may live elsewhere)
 
     def done(result: str, msg: str = ""):
         return RedirectResponse(f"{back}&result={result}" + (f"&msg={quote(msg[:300])}" if msg else ""), 303)

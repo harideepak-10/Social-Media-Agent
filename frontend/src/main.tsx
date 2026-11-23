@@ -16,6 +16,7 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Results = lazy(() => import("./pages/Results"));
 const Setup = lazy(() => import("./pages/Setup"));
 import { registerServiceWorker } from "./lib/pwa";
+import WakeGate from "./components/WakeGate";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: (n, e) => n < 2 && (e as { status?: number }).status !== 401, refetchOnWindowFocus: true } },
@@ -54,9 +55,11 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <WakeBanner />
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <WakeGate>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </WakeGate>
       </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,

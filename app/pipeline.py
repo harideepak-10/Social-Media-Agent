@@ -355,7 +355,8 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
 
 
 def _notify_new(item: ContentItem) -> None:
-    base = env("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+    from .config import frontend_url
+    base = frontend_url()
     notify.telegram(
         f"📝 New <b>{item.kind}</b> for {item.run_date:%a %d %b} waiting for approval\n"
         f"<b>{item.topic}</b>\n{base}/items/{item.id}",

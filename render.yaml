@@ -1,6 +1,44 @@
-# Render Blueprint – backend (FastAPI agent + scheduler + Chromium/ffmpeg) as a Docker web service.
+# Render Blueprint – two services:
+#  1. krypsos-agent-app  : the dashboard as a free Static Site – never sleeps, opens instantly and shows our own
+#                          "waking up" screen while the agent starts (people never see Render's waking page).
+#  2. social-media-agent : the agent (FastAPI + scheduler + Chromium/ffmpeg) as a Docker web service.
 # Render dashboard → New → Blueprint → pick this repo. Fill the "sync: false" values when asked.
+# >>> If your agent's address differs, replace social-media-agent-y7yv.onrender.com below. <<<
 services:
+  - type: web
+    name: krypsos-agent-app
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    headers:                   # a new deploy shows up on the next open
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /manifest.webmanifest
+        name: Cache-Control
+        value: no-cache
+    routes:                    # forward the agent's paths (same address -> no CORS, logins keep working)
+      - type: rewrite
+        source: /api/*
+        destination: https://social-media-agent-y7yv.onrender.com/api/*
+      - type: rewrite
+        source: /media/*
+        destination: https://social-media-agent-y7yv.onrender.com/media/*
+      - type: rewrite
+        source: /brand/*
+        destination: https://social-media-agent-y7yv.onrender.com/brand/*
+      - type: rewrite
+        source: /classic/*
+        destination: https://social-media-agent-y7yv.onrender.com/classic/*
+      - type: rewrite          # React pages (/items/12, /settings …)
+        source: /*
+        destination: /index.html
+
   - type: web
     name: social-media-agent
     runtime: docker
@@ -22,7 +60,9 @@ services:
         sync: false
       - key: SECRET_KEY          # keeps you logged in across restarts
         generateValue: true
-      - key: PUBLIC_BASE_URL     # e.g. https://social-media-agent.onrender.com (needed later for Instagram)
+      - key: PUBLIC_BASE_URL     # the agent's own address, e.g. https://social-media-agent-y7yv.onrender.com
+        sync: false
+      - key: FRONTEND_URL        # the dashboard's address (Static Site above), e.g. https://krypsos-agent-app.onrender.com
         sync: false
       - key: LOW_MEMORY          # lighter video encoding for the 512 MB free instance
         value: "1"

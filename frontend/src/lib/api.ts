@@ -196,9 +196,11 @@ async function fetchWithWake(path: string, init: RequestInit): Promise<Response>
   for (let attempt = 0; ; attempt++) {
     try {
       const res = await fetch(path, init);
-      // A JSON error body means our own app answered (a real error), not the host waking up.
+      // A JSON body means our own app answered (maybe a real error). An HTML page instead of JSON is the host's
+      // "waking up" page (or the Static Site's proxy) – the agent is still starting.
       const fromApp = (res.headers.get("content-type") || "").includes("application/json");
-      if (WAKE_CODES.has(res.status) && !fromApp && attempt < (safe ? 8 : 4)) { setWaking(true); await sleep(8000); continue; }
+      const hostPage = !fromApp && (WAKE_CODES.has(res.status) || (res.headers.get("content-type") || "").includes("text/html"));
+      if (hostPage && attempt < (safe ? 12 : 6)) { setWaking(true); await sleep(5000); continue; }
       setWaking(false);
       return res;
     } catch (e) {

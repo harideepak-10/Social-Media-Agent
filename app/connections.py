@@ -562,6 +562,7 @@ def status() -> dict:
     ig_exp = ig.get("expires_at")
     return {
         "public_url": env("PUBLIC_BASE_URL", "http://localhost:8000"),
+        "frontend_url": env("FRONTEND_URL", ""),
         "instagram": {
             "app_configured": bool(app_creds("instagram")["id"] and app_creds("instagram")["secret"]),
             "app_id": app_creds("instagram")["id"] or "",

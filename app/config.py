@@ -134,6 +134,12 @@ def use_brand(brand: dict):
         _brand_override.reset(token)
 
 
+def frontend_url() -> str:
+    """Address people open the dashboard at. With the dashboard on a Render Static Site (never sleeps, shows our own
+    loading screen) that differs from the agent's address: FRONTEND_URL. Otherwise the agent serves it itself."""
+    return (env("FRONTEND_URL") or env("PUBLIC_BASE_URL", "http://localhost:8000")).rstrip("/")
+
+
 def public_url(path: Path | str) -> str:
     """Public URL for a file inside MEDIA_DIR (served at /media)."""
     rel = Path(path).resolve().relative_to(MEDIA_DIR.resolve()).as_posix()

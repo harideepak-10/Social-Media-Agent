@@ -277,6 +277,20 @@ The dashboard is built into the same service, so there's no CORS setup and no AP
 4. Deploy. The first build takes about 10 minutes because it includes Chromium. Then open `https://<your-app>.onrender.com/health`; it should return `{"ok": true}`.
 5. Log in and open **Settings → Status → Full check**. Every line should be green.
 
+### Dashboard on a free Static Site (no Render "waking up" page)
+The free agent sleeps after 15 minutes. Open the dashboard through the **Static Site** instead of the agent's link:
+it never sleeps, opens instantly and shows a Krypsos loading screen until the agent is awake (about a minute).
+1. Render → **New → Static Site** → this repo. Root directory `frontend`, build `npm ci && npm run build`,
+   publish directory `dist` (or use the Blueprint – `render.yaml` already describes it).
+2. **Redirects/Rewrites** (Static Site → Settings), in this order – all type *Rewrite*:
+   `/api/*` → `https://<agent>.onrender.com/api/*`, the same for `/media/*`, `/brand/*`, `/classic/*`,
+   and last `/*` → `/index.html`.
+3. On the **agent** service set `FRONTEND_URL=https://<static-site>.onrender.com` (logins to Instagram/LinkedIn
+   return there). Keep `PUBLIC_BASE_URL` = the agent's own address.
+4. Use only the Static Site link from now on (also for "Install app" on your phone). The agent's link still works.
+Tip: a free cron-job.org job opening `https://<agent>.onrender.com/health` every 10 minutes keeps the agent awake
+for the 18:00 preparation and posting times.
+
 ### Supabase: free database + file storage (so nothing is lost on Render)
 Render's free plan wipes the server's disk on every restart. With Supabase connected:
 - the queue and history are kept in **Postgres**;
