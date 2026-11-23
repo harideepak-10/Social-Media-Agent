@@ -186,7 +186,8 @@ def save_storyboard(item_id: int, edits: dict, voice_name: str) -> ContentItem:
             for i, sc in enumerate(edits.get("scenes") or []):
                 if i < len(board.get("scenes") or []):
                     apply(board["scenes"][i], sc, "scene")
-            board["voice_name"] = (voice_name or "").strip()[:60]
+            from .generators import tts
+            board["voice_name"] = tts.english_voice((voice_name or "").strip()[:60])
             (src / "storyboard.json").write_text(json.dumps(board, ensure_ascii=False, indent=1), encoding="utf-8")
             prefix = storage.video_source_prefix(item.media_path)
             storage.save_file(src / "storyboard.json", f"{prefix}/storyboard.json", like=item.media_path)

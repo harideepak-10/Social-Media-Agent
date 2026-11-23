@@ -17,10 +17,25 @@ from .ffmpeg import duration, run
 log = logging.getLogger(__name__)
 
 
+DEFAULT_VOICE = "en-IN-PrabhatNeural"
+
+
+def is_english(voice: str) -> bool:
+    return str(voice or "").lower().startswith("en-")
+
+
+def english_voice(voice: str | None) -> str:
+    """Voice-overs are English only: any other (or older saved) voice falls back to an English one."""
+    for v in (voice, (settings().get("video") or {}).get("voice")):
+        if v and is_english(v):
+            return v
+    return DEFAULT_VOICE
+
+
 def speak(text: str, out: Path, voice: str | None = None) -> tuple[Path, float]:
     """Writes an audio file for `text`; returns (path, seconds)."""
     provider = env("TTS_PROVIDER", "edge").lower()
-    voice = voice or (settings().get("video") or {}).get("voice", "en-IN-PrabhatNeural")
+    voice = english_voice(voice)
     out = out.with_suffix(".mp3")
     if provider == "edge":
         try:

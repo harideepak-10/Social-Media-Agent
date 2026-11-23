@@ -18,7 +18,7 @@ from .config import ASSETS_DIR, CACHE_DIR, MEDIA_DIR, WEEKDAYS, env, events_conf
 from .creative import assets, rotation
 from .creative.catalog import POST_FORMATS, POST_THEMES, VIDEO_THEMES
 from .db import ContentItem, get_session
-from .generators import planner
+from .generators import planner, tts
 from .research import calendar as festcal
 
 router = APIRouter(prefix="/api")
@@ -36,11 +36,8 @@ VOICES = [
     {"id": "en-GB-RyanNeural", "label": "Ryan – British English, male"},
     {"id": "en-GB-SoniaNeural", "label": "Sonia – British English, female"},
     {"id": "en-AU-WilliamNeural", "label": "William – Australian English, male"},
-    {"id": "ta-IN-ValluvarNeural", "label": "Valluvar – Tamil, male"},
-    {"id": "ta-IN-PallaviNeural", "label": "Pallavi – Tamil, female"},
-    {"id": "hi-IN-MadhurNeural", "label": "Madhur – Hindi, male"},
-    {"id": "hi-IN-SwaraNeural", "label": "Swara – Hindi, female"},
-]
+    {"id": "en-AU-NatashaNeural", "label": "Natasha – Australian English, female"},
+]  # English only – voice-overs are always in English
 
 
 # ── schedule ──────────────────────────────────────────────────────────────
@@ -282,6 +279,8 @@ def put_settings(body: SettingsIn, _: str = User):
             raise HTTPException(400, "video formats: pick landscape and/or vertical")
         if "themes" in v and (not v["themes"] or set(v["themes"]) - set(VIDEO_THEMES)):
             raise HTTPException(400, "pick at least one valid video look")
+        if "voice" in v and not tts.is_english(str(v["voice"])):
+            raise HTTPException(400, "Voice-overs are English only – pick an English voice")
         if "max_seconds" in v and not 20 <= int(v["max_seconds"]) <= 180:
             raise HTTPException(400, "max_seconds must be between 20 and 180")
         patch["video"] = v
