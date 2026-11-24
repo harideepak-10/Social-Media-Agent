@@ -20,6 +20,8 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
+from PIL import Image
+
 from .. import llm, progress
 from .. import storage
 from ..config import ASSETS_DIR, company, settings
@@ -93,6 +95,144 @@ Return JSON: {{"title": "…", "intro": {{…}}, "scenes": [{{…}}], "grid": {{
         scenes = [{"_block": b, "eyebrow": "SEE IT IN ACTION", "headline": plan["topic"], "accent": "",
                    "bullets": [], "badges": [], "voice": ""} for b in blocks[:3]]
     data["scenes"] = scenes[:7]
+    return data
+
+
+# ── walkthrough storyboard ("Create from URL": every chosen page, how it works, benefits) ─────────
+LENGTHS = {"short": {"max_s": 60, "scenes": "3-5", "label": "short highlight (max 60 s, for Reels/LinkedIn)"},
+           "full": {"max_s": 240, "scenes": "8-16", "label": "full walkthrough (2-4 minutes)"}}
+WALK_SYSTEM = SYSTEM + """
+You also make product WALKTHROUGH videos: they guide a new customer through the website page by page, explain how
+the product works (real workflow steps) and why it helps – clear and friendly, like a great sales demo."""
+
+
+def capture_pages(plan: dict, work: Path, uploads: list[dict] | None = None, max_pages: int = 6) -> dict:
+    """Capture EVERY chosen page (UI blocks + a full-page shot for the scrolling page tour) and add the user's
+    own screenshots. Returns {blocks: [...], pages: [{id 'P0', url, name, full}], text}."""
+    out = {"blocks": [], "pages": [], "text": ""}
+    urls = list(dict.fromkeys(plan.get("page_urls") or []))[:max_pages]
+    names = {p.get("url"): p.get("name") for p in plan.get("pages_meta") or []}
+    for i, u in enumerate(urls):
+        progress.report(f"Capturing page {i + 1} of {len(urls)}: {u.split('//')[-1][:60]}", 12 + int(10 * i / max(1, len(urls))))
+        progress.check()
+        try:
+            cap = visuals.capture(u, work / f"cap{i}", max_blocks=8, full=True)
+        except Exception as e:
+            log.warning("capture of %s failed: %s", u, e)
+            continue
+        for b in cap["blocks"]:
+            b["id"] = i * 100 + b["id"]
+            b["page"] = f"P{i}"
+            out["blocks"].append(b)
+        out["pages"].append({"id": f"P{i}", "url": u, "name": names.get(u) or cap["title"] or u, "full": cap["full"],
+                             "text": cap["text"][:1500]})
+        out["text"] += f"\n[P{i}] {u}: {cap['text'][:1200]}"
+    for j, up in enumerate(uploads or []):  # user's screenshots (e.g. inside the app, behind a login)
+        p = Path(up["path"])
+        if not p.is_file():
+            continue
+        try:
+            im = Image.open(p)
+            w, h = im.size
+        except Exception:
+            continue
+        out["blocks"].append({"id": f"U{j}", "path": p, "w": w, "h": h, "text": up.get("caption", "") or "(screenshot from the user)",
+                              "page": "", "user": True})
+    return out
+
+
+def walkthrough_storyboard(plan: dict, product: dict | None, cap: dict, work: Path, voice: bool,
+                           length: str = "short") -> dict:
+    L = LENGTHS.get(length, LENGTHS["short"])
+    blocks = cap["blocks"]
+    sheet_blocks = [dict(b, id=b["id"]) for b in blocks][:24]
+    sheet = None
+    if sheet_blocks:
+        sheet = visuals.contact_sheet([dict(b, id=(b["id"] if str(b["id"]).startswith("U") else b["id"])) for b in sheet_blocks],
+                                      work / "sheet.jpg")
+    c = company()
+    def bid(b):
+        return b["id"] if str(b["id"]).startswith("U") else f"B{b['id']}"
+    block_lines = "\n".join(f"{bid(b)} [{b.get('page') or 'your screenshot'}] ({b['w']}x{b['h']}): {b['text'][:220]}"
+                             for b in blocks)
+    page_lines = "\n".join(f"{p['id']}: {p['name']} – {p['url']}" for p in cap["pages"] if p.get("full"))
+    story = "\n".join(f"- {s}" for s in plan.get("story") or [])
+    prompt = f"""BRAND: {c.get('name')} — {c.get('tagline')} | {c.get('website')}
+AUDIENCE: {c.get('audience')}
+VIDEO: {plan['topic']} — {plan['angle']} (hook: {plan['hook']}) {plan.get('context', '')}
+LENGTH: {L['label']}
+PLANNED STORY:
+{story or '- (choose)'}
+
+WHAT EACH PAGE SAYS (site explorer notes – use these facts; never invent features or numbers):
+{plan.get('site_summary', '')[:7000]}
+
+PAGES (each can be shown as a scrolling page tour):
+{page_lines or '(none)'}
+
+SCREEN CLIPS (see the contact sheet; B… = captured from a page, U… = the user's own screenshots – use those, they
+usually show the real app):
+{block_lines or '(none)'}
+
+ALREADY USED RECENTLY (do not repeat): {rotation.recent_creative_memory()}
+
+Write the storyboard of a product walkthrough with {L['scenes']} scenes, in customer-journey order
+(what it is -> core pages/features -> how it works -> proof -> pricing/CTA). Scene types:
+- "tour": shows a whole page scrolling in a browser window. {{"type":"tour","page":"P0","eyebrow","headline","accent",
+  "bullets":[3 x {{"icon","text"}}]}} – use it to introduce a page.
+- "feature": one screen clip with callouts. {{"type":"feature","block":"B103" or "U0","eyebrow","headline","accent",
+  "bullets":[3 x {{"icon","text"}}],"badges":[0-2 {{"value": exact number/text visible in that clip,"label"}}]}}
+- "workflow": how it works, as numbered steps that animate one by one. {{"type":"workflow","eyebrow","headline","accent",
+  "steps":[3-6 {{"icon","title" (2-4 words),"desc" (max 9 words)}}]}} – use the real workflow steps from the notes.
+Every scene also gets "page_name" (which page it is about){', and a "voice" line: natural spoken English, 1-2 sentences (max 28 words), adding to the on-screen text' if voice else ''}.
+{'Include at least one workflow scene and show every planned page.' if length == 'full' else 'Keep only the strongest moments; at most one tour.'}
+Icons: one of {ICONS}. Headlines 3-7 words, last part is the accent. Bullets max 8 words.
+Also: intro {{eyebrow, headline, accent, sub (max 16 words), chips (3-5){', voice' if voice else ''}}},
+{'grid {eyebrow, headline, accent, items: 6 or 9 {icon, title, desc}' + (', voice' if voice else '') + '}, ' if length == 'full' else ''}outro {{headline, accent, cta, url{', voice' if voice else ''}}},
+captions for instagram/facebook/linkedin and 8-12 hashtags.
+
+Return JSON: {{"title": "…", "intro": {{…}}, "scenes": [{{…}}], {'"grid": {…}, ' if length == 'full' else ''}"outro": {{…}},
+ "captions": {{"instagram": "…", "facebook": "…", "linkedin": "…"}}, "hashtags": ["#…"]}}"""
+    data = llm.complete_json(prompt, WALK_SYSTEM, max_tokens=9000 if length == "full" else 5000, design=True,
+                             images=[sheet] if sheet and llm.vision_available() else None)
+    data = brandfix.fix_obj(data)
+    by_id = {bid(b).upper(): b for b in blocks}
+    fulls = {p["id"]: p for p in cap["pages"] if p.get("full")}
+    scenes = []
+    for sc in data.get("scenes") or []:
+        t = sc.get("type") or ("tour" if sc.get("page") in fulls else "feature")
+        if t == "tour":
+            pg = fulls.get(str(sc.get("page", "")).upper().strip())
+            if not pg:
+                continue
+            f = pg["full"]
+            sc["_block"] = {"id": pg["id"], "path": f["path"], "w": f["w"], "h": f["h"], "text": pg["text"][:400],
+                            "url": pg["url"]}
+            sc["badges"] = []
+        elif t == "workflow":
+            steps = [s for s in (sc.get("steps") or []) if isinstance(s, dict) and s.get("title")][:6]
+            if len(steps) < 2:
+                continue
+            sc["steps"] = steps
+        else:
+            t = "feature"
+            b = by_id.get(str(sc.get("block", "")).upper().strip())
+            if not b:
+                continue
+            flat = re.sub(r"\s+", "", b["text"])
+            sc["badges"] = [bd for bd in (sc.get("badges") or [])[:2]
+                            if re.sub(r"\s+", "", str(bd.get("value", ""))) and re.sub(r"\s+", "", str(bd["value"])) in flat]
+            sc["_block"] = b
+        sc["type"] = t
+        sc.setdefault("bullets", [])
+        scenes.append(sc)
+    if not scenes:  # fallback: tour of every page captured
+        scenes = [{"type": "tour", "page": p["id"], "page_name": p["name"], "eyebrow": p["name"].upper()[:30],
+                   "headline": p["name"], "accent": "", "bullets": [], "badges": [], "voice": "",
+                   "_block": {"id": p["id"], "path": p["full"]["path"], "w": p["full"]["w"], "h": p["full"]["h"],
+                              "text": p["text"][:400], "url": p["url"]}} for p in fulls.values()]
+    data["scenes"] = scenes[:18]
+    data["_length"] = length
     return data
 
 
@@ -238,6 +378,8 @@ def scene_feature(d, theme, size, dur, logo, idx, title):
     img_h = round(win_w * b["h"] / max(1, b["w"]))
     vp_h = min(img_h, max_vp)
     pan = -(img_h - vp_h) if img_h > vp_h else 0
+    if d.get("type") == "tour":  # scroll through the top of the page (about 3 screens), not a blur of the whole thing
+        pan = max(pan, -int(vp_h * 3.2))
     if not vert:  # vertically centre the window
         win_y = max(120, (h - vp_h - 46) // 2 + 10)
     badges = ""
@@ -261,6 +403,52 @@ def scene_feature(d, theme, size, dur, logo, idx, title):
   <div class="vp" style="height:{vp_h}px;--pan:{pan}px"><img src="{Path(b['path']).name}"></div>
  </div>
  {badges}
+</div>"""
+    return _doc(theme, size, dur, body, logo)
+
+
+def scene_workflow(d, theme, size, dur, logo):
+    """How it works: numbered steps appear one after another, joined by a line that fills up."""
+    w, h = size
+    vert = h > w
+    steps = (d.get("steps") or [])[:6]
+    n = max(1, len(steps))
+    t0, span = 1.0, max(1.2, (dur - 2.2) / n)   # when each step lights up
+    cards = []
+    for i, st in enumerate(steps):
+        at = t0 + i * span
+        cards.append(f"""<div class="wf a" style="animation-delay:{at:.2f}s">
+  <div class="wf-n" style="animation:pulse 1.2s ease-out {at + .2:.2f}s both">{i + 1}</div>
+  <div class="ic">{icons.svg(st.get('icon', 'check'), 30 if vert else 28)}</div>
+  <b>{_e(st.get('title'))}</b><p>{_e(st.get('desc'))}</p></div>""")
+    line_len = f"calc(100% - {100 / n:.1f}%)" if not vert else "calc(100% - 180px)"
+    body = f"""<style>
+.wf-wrap{{position:relative;display:grid;{'grid-template-columns:1fr' if vert else f'grid-template-columns:repeat({n},1fr)'};gap:{24 if vert else 22}px;width:100%}}
+.wf{{position:relative;background:{theme['panel']};border:1px solid {theme['ink']}14;border-radius:18px;padding:{'22px 26px 22px 96px' if vert else '64px 24px 26px'};
+ display:flex;flex-direction:column;gap:8px;{'min-height:120px' if vert else 'text-align:center;align-items:center'}}}
+.wf .ic{{width:54px;height:54px;border-radius:14px;display:grid;place-items:center;background:{theme['accent']}1f;color:{theme['accent']};
+ {'position:absolute;left:24px;top:50%;transform:translateY(-50%)' if vert else ''}}}
+.wf b{{font-size:{30 if vert else 25}px}}
+.wf p{{font-size:{22 if vert else 18}px;color:{theme['muted']};line-height:1.35}}
+.wf-n{{position:absolute;{'right:20px;top:18px' if vert else 'left:50%;top:-26px;margin-left:-26px'};width:52px;height:52px;border-radius:50%;display:grid;place-items:center;
+ font-weight:800;font-size:22px;background:linear-gradient(135deg,{theme['accent']},{theme['accent2']});color:{theme.get('btn_text') or '#fff'};
+ box-shadow:0 10px 30px {theme['accent']}55}}
+.wf-line{{position:absolute;{'left:50px;top:30px;width:4px;height:' + line_len if vert else f'left:{50 / n:.1f}%;top:0;height:4px;width:' + line_len};
+ background:{theme['ink']}14;border-radius:4px;overflow:hidden}}
+.wf-line i{{display:block;{'width:100%;height:100%;transform-origin:top' if vert else 'height:100%;width:100%;transform-origin:left'};
+ background:linear-gradient({'180deg' if vert else '90deg'},{theme['accent']},{theme['accent2']});
+ animation:{'growv' if vert else 'growh'} {span * max(1, n - 1):.2f}s linear {t0 + .3:.2f}s both}}
+@keyframes growh{{from{{transform:scaleX(0)}}to{{transform:scaleX(1)}}}}
+@keyframes growv{{from{{transform:scaleY(0)}}to{{transform:scaleY(1)}}}}
+@keyframes pulse{{0%{{transform:scale(.6);opacity:0}}60%{{transform:scale(1.15);opacity:1}}100%{{transform:scale(1)}}}}
+</style>
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ gap:{56 if vert else 64}px;padding:{'0 60px' if vert else '0 150px'}">
+ <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:20px">
+  <div class="eyebrow a" style="animation-delay:.2s">{_e(d.get('eyebrow') or 'HOW IT WORKS')}</div>
+  <h1 class="a" style="font-size:{72 if vert else 62}px;animation-delay:.4s">{_headline(d)}</h1>
+ </div>
+ <div class="wf-wrap"><div class="wf-line"><i></i></div>{''.join(cards)}</div>
 </div>"""
     return _doc(theme, size, dur, body, logo)
 
@@ -407,7 +595,9 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         shutil.copy(logo["light"], work / "logo_light.png")  # festive opening is always a night scene
         logo_file = "logo.png"
     for sc in board["scenes"]:
-        shutil.copy(sc["_block"]["path"], work / Path(sc["_block"]["path"]).name)
+        b = sc.get("_block")
+        if b and b.get("path") and Path(b["path"]).resolve() != (work / Path(b["path"]).name).resolve():
+            shutil.copy(b["path"], work / Path(b["path"]).name)
 
     # 1) voice-over and timing
     progress.report("Recording the voice-over" if voice else "Timing the scenes", 35)
@@ -422,8 +612,10 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         vpath, vsec = None, 0.0
         if voice and d.get("voice"):
             vpath, vsec = tts.speak(d["voice"], work / f"vo_{i}", voice=voice_name or board.get("voice_name") or None)
-        dur = max(base[kind], vsec + 1.2) if vpath else base[kind]
-        dur = min(dur, 12.0)
+        stype = d.get("type", "feature") if kind == "scene" else ""
+        b = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(d.get("steps") or [])}.get(stype, base[kind])
+        dur = max(b, vsec + 1.2) if vpath else b
+        dur = min(dur, 16.0 if stype in ("tour", "workflow") else 12.0)
         timeline.append((kind, d, vpath, t0, dur))
         t0 += dur
     total = t0
@@ -439,9 +631,12 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
                                           "logo_light.png" if logo_file else None, seed=len(d.get("name", "")) * 97 + i)
             elif kind == "intro":
                 doc = scene_intro(d, theme, size, dur, logo_file, product_name)
+            elif kind == "scene" and d.get("type") == "workflow":
+                doc = scene_workflow(d, theme, size, dur, logo_file)
             elif kind == "scene":
+                bar = (d.get("_block") or {}).get("url", "").split("//")[-1] if d.get("type") == "tour" else ""
                 doc = scene_feature(d, theme, size, dur, logo_file, si,
-                                    title + (d.get("eyebrow", "").title() or "Overview"))
+                                    bar or title + (d.get("eyebrow", "").title() or "Overview"))
                 si += 1
             elif kind == "grid":
                 doc = scene_grid(d, theme, size, dur, logo_file)
@@ -475,28 +670,34 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
 
 
 def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict | None,
-             theme_spec: dict | None = None) -> dict:
+             theme_spec: dict | None = None, length: str = "", uploads: list[dict] | None = None,
+             outline_only: bool = False, source_dir: Path | None = None) -> dict:
+    """length "" = the classic promo; "short"/"full" = a walkthrough of every chosen page (+ the user's screenshots).
+    outline_only: stop after the storyboard (the user reviews/reorders the scenes, then "Make video" renders it)."""
     vcfg = settings().get("video") or {}
     work = storage.work_dir("video", item_id)
     voice = bool(vcfg.get("voiceover", True))
-    orientations = vcfg.get("formats") or ["landscape", "vertical"]
 
-    url = (product or {}).get("url") or (plan.get("page_urls") or [company().get("website")])[0]
-    progress.report("Capturing the product screens", 12)
-    cap = visuals.capture(url, work / "cap")
-    # add blocks from a second page if the first one is thin
-    for extra in (plan.get("page_urls") or [])[1:3]:
-        if len(cap["blocks"]) >= 6 or extra == url:
-            break
-        more = visuals.capture(extra, work / f"cap_{len(cap['blocks'])}")
-        offset = len(cap["blocks"]) + 100
-        for b in more["blocks"]:
-            b["id"] += offset
-        cap["blocks"] += more["blocks"]
-        cap["text"] += " " + more["text"][:2000]
-
-    progress.report(f"AI is writing the storyboard from {len(cap['blocks'])} screens", 25)
-    board = storyboard(plan, product, cap, work, voice)
+    if length or uploads:
+        cap = capture_pages(plan, work, uploads, max_pages=6 if length == "full" else 4)
+        progress.report(f"AI is writing the walkthrough from {len(cap['pages'])} pages and {len(cap['blocks'])} screens", 25)
+        board = walkthrough_storyboard(plan, product, cap, work, voice, length or "short")
+    else:
+        url = (product or {}).get("url") or (plan.get("page_urls") or [company().get("website")])[0]
+        progress.report("Capturing the product screens", 12)
+        cap = visuals.capture(url, work / "cap")
+        # add blocks from a second page if the first one is thin
+        for extra in (plan.get("page_urls") or [])[1:3]:
+            if len(cap["blocks"]) >= 6 or extra == url:
+                break
+            more = visuals.capture(extra, work / f"cap_{len(cap['blocks'])}")
+            offset = len(cap["blocks"]) + 100
+            for b in more["blocks"]:
+                b["id"] += offset
+            cap["blocks"] += more["blocks"]
+            cap["text"] += " " + more["text"][:2000]
+        progress.report(f"AI is writing the storyboard from {len(cap['blocks'])} screens", 25)
+        board = storyboard(plan, product, cap, work, voice)
     if theme_spec:  # "Create from URL": the website's own colours and fonts (kept for later edits/rebuilds)
         board["_theme_spec"] = theme_spec
     if plan.get("festive_frame"):
@@ -507,28 +708,60 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
         except Exception as e:
             log.warning("festive opening skipped: %s", e)
     product_name = (product or {}).get("name", "")
-    files = build(board, theme_name, work, storage.video_paths(day, item_id, plan, "promo"),
-                  product_name, orientations, voice)
+    # the editable source is written first, and the video is built FROM it (unique screen names, same path
+    # as a later rebuild / outline render)
+    src = save_source(board, theme_name, product_name, source_dir or storage.WORK_DIR / f"vsrc_{item_id}")
+    shutil.rmtree(work, ignore_errors=True)
+    tags = [t if t.startswith("#") else f"#{t}" for t in board.get("hashtags", [])]
+    if outline_only:
+        return {"outline": True, "copy": board, "hashtags": " ".join(tags), "video_source": src,
+                "script_json": script_json(board, theme_name, product_name)}
+    return render_source(src, day, item_id, plan, voice=voice)
+
+
+def script_json(board: dict, theme_name: str, product_name: str) -> str:
+    clean = {k: v for k, v in board.items() if k not in ("captions", "hashtags") and not k.startswith("_")}
+    clean["scenes"] = [{k: v for k, v in sc.items() if k != "_block"} for sc in board.get("scenes") or []]
+    clean.update({"headline": (board.get("intro") or {}).get("headline", ""), "theme": theme_name,
+                  "product": product_name})
+    return json.dumps(clean, ensure_ascii=False, indent=2, default=str)
+
+
+def estimate_seconds(board: dict) -> float:
+    """Rough length before rendering (for the outline screen)."""
+    t = 5.8 if (board.get("festive") or {}).get("name") else 0
+    t += 4.6 + 5.0 + (6.0 if (board.get("grid") or {}).get("items") else 0)
+    for sc in board.get("scenes") or []:
+        words = len(str(sc.get("voice") or "").split())
+        base = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(sc.get("steps") or [])}.get(sc.get("type"), 6.4)
+        t += min(max(base, words / 2.6 + 1.2), 16.0)
+    return round(t)
+
+
+def render_source(src: Path, day: date, item_id: int, plan: dict | None = None, voice: bool | None = None,
+                  voice_name: str | None = None, targets: dict | None = None) -> dict:
+    """Render a saved storyboard (fresh video, or an approved outline)."""
+    vcfg = settings().get("video") or {}
+    orientations = vcfg.get("formats") or ["landscape", "vertical"]
+    if voice is None:
+        voice = bool(vcfg.get("voiceover", True))
+    board, theme_name, product_name = load_source(src)
+    work = storage.work_dir("video", item_id)
+    files = build(board, theme_name, work, targets or storage.video_paths(day, item_id, plan or {}, "promo"),
+                  product_name, orientations, voice, voice_name)
     main = files[orientations[0]]
     alt = files.get("vertical") if orientations[0] != "vertical" else None
     thumb = ffmpeg.thumbnail(main, storage.thumb_path(main), at=1.6)
-    src = save_source(board, theme_name, product_name, storage.WORK_DIR / f"vsrc_{item_id}")  # for scene edits
     shutil.rmtree(work, ignore_errors=True)
-
     tags = [t if t.startswith("#") else f"#{t}" for t in board.get("hashtags", [])]
-    clean = {k: v for k, v in board.items() if k not in ("captions", "hashtags")}
-    for sc in clean.get("scenes", []):
-        sc.pop("_block", None)
-    clean.update({"headline": (board.get("intro") or {}).get("headline", ""), "theme": theme_name,
-                  "product": product_name})
     return {"copy": board, "media": main, "alt": alt, "thumb": thumb, "hashtags": " ".join(tags),
-            "script_json": json.dumps(clean, ensure_ascii=False, indent=2), "video_source": src}
+            "script_json": script_json(board, theme_name, product_name), "video_source": src}
 
 
 # ── editable source: storyboard.json + the captured screens ──────────────────
 EDITABLE = {"festive": ("greeting", "name", "quote", "voice"),
             "intro": ("eyebrow", "headline", "accent", "sub", "voice"),
-            "scene": ("eyebrow", "headline", "accent", "voice"),
+            "scene": ("eyebrow", "headline", "accent", "voice", "page_name"),
             "grid": ("eyebrow", "headline", "accent", "voice"),
             "outro": ("headline", "accent", "cta", "url", "voice")}
 

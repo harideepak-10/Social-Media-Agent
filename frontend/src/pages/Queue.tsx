@@ -13,14 +13,14 @@ import { PendingOccasionsBanner } from "../components/Occasions";
 
 const TABS: { id: string; label: string; statuses: Status[] | null; bin?: boolean }[] = [
   { id: "all", label: "All", statuses: null },
-  { id: "review", label: "Needs review", statuses: ["pending_approval"] },
+  { id: "review", label: "Needs review", statuses: ["pending_approval", "outline"] },
   { id: "generating", label: "Generating", statuses: ["generating", "queued"] },
   { id: "approved", label: "Approved", statuses: ["approved", "publishing"] },
   { id: "published", label: "Published", statuses: ["published", "dry_run", "partial"] },
   { id: "archived", label: "Rejected / failed", statuses: ["rejected", "failed"] },
   { id: "bin", label: "Bin", statuses: null, bin: true },
 ];
-const ALL_STATUSES: Status[] = ["generating", "queued", "pending_approval", "approved", "publishing", "published", "dry_run", "partial", "failed", "rejected"];
+const ALL_STATUSES: Status[] = ["generating", "queued", "outline", "pending_approval", "approved", "publishing", "published", "dry_run", "partial", "failed", "rejected"];
 
 export default function Queue() {
   const qc = useQueryClient();

@@ -7,6 +7,7 @@ import { api, type ItemDetail as TItem, type Platform } from "../lib/api";
 import { ORIGIN, PLATFORMS, displayTitle, downloadHref, finalCaption, fmtDate, pretty, sourceLabel, workerText } from "../lib/ui";
 import { Button, Card, Chip, Confirm, ProgressBar, StatusBadge, useToast } from "../components/ui";
 import { EditBar, MetricsCard, PlatformPreview, ScheduleCard } from "../components/ItemExtras";
+import OutlineEditor from "../components/OutlineEditor";
 
 type Action = "approve" | "reject" | "regenerate" | "publish" | "stop" | "check";
 
@@ -162,7 +163,7 @@ export default function ItemDetail() {
               <Button variant="dark" icon={<Send className="size-4" />} onClick={() => setConfirm("publish")}
                 loading={act.isPending && act.variables === "publish"}>Publish now</Button>
             )}
-            {["rejected", "failed"].includes(item.status) && (
+            {["rejected", "failed", "outline"].includes(item.status) && (
               <Button variant="danger" icon={<Trash2 className="size-4" />} loading={del.isPending}
                 onClick={() => setConfirm("delete")}>Delete</Button>
             )}
@@ -226,13 +227,17 @@ export default function ItemDetail() {
         <Card className="mt-8 p-8 md:p-12">
           <div className="mx-auto max-w-xl text-center">
             <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand-50"><Loader2 className="size-7 animate-spin text-brand-600" /></div>
-            <h2 className="mt-5 text-xl font-bold">{queued ? `Waiting for your PC to make this ${item.kind}` : `The agent is creating your ${item.kind}`}</h2>
+            <h2 className="mt-5 text-xl font-bold">{queued ? `Waiting for your PC to make this ${item.kind}` : item.job === "render" ? "Making the video from your outline" : `The agent is creating your ${item.kind}`}</h2>
             <p className="mt-1 text-sm text-stone-500">
               {queued
                 ? (item.stage.includes("only reachable")
                   ? "This website runs on your PC (a local address), so only your PC can open it. Start the site and run_video_worker.bat on your PC – it picks this up within a minute."
                   : "Videos are made on your PC because this server is too small for them. Start run_video_worker.bat on your PC – it picks this up within a minute.")
-                : item.kind === "video" ? "Videos take about 4–8 minutes (16:9 and 9:16 versions)." : "Posts take about a minute."} You can leave this page – it keeps working.
+                : item.kind === "video"
+                  ? (item.options?.length === "full" ? "A full walkthrough takes about 10–20 minutes (16:9 and 9:16 versions)."
+                    : item.options?.outline && item.job !== "render" ? "The outline is ready in 1–3 minutes – you check the scenes before the video is made."
+                    : "Videos take about 4–8 minutes (16:9 and 9:16 versions).")
+                  : "Posts take about a minute."} You can leave this page – it keeps working.
             </p>
             {pc?.mode === "pc" && (item.kind === "video" || queued) && (
               <div className={clsx("mx-auto mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ring-1",
@@ -254,9 +259,13 @@ export default function ItemDetail() {
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           {/* preview */}
           <div className="space-y-6">
-            <Preview item={item} />
-            <EditBar item={item} />
-            <QualityCard item={item} checking={act.isPending && act.variables === "check"} onCheck={() => act.mutate("check")} />
+            {item.status === "outline" && !item.deleted_at ? <OutlineEditor item={item} /> : (
+              <>
+                <Preview item={item} />
+                <EditBar item={item} />
+                <QualityCard item={item} checking={act.isPending && act.variables === "check"} onCheck={() => act.mutate("check")} />
+              </>
+            )}
             <Details item={item} />
           </div>
 

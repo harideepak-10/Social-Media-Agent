@@ -52,10 +52,14 @@ _FIND_BLOCKS_JS = """
 """
 
 
-def capture(url: str, out_dir: Path, max_blocks: int = 14, width: int = 1440) -> dict:
-    """Returns {url, title, text, hero: Path, blocks: [{id, path, w, h, text}]}."""
+MAX_FULL_H = 7000   # px of the page (CSS) kept for the scrolling "page tour" shot
+
+
+def capture(url: str, out_dir: Path, max_blocks: int = 14, width: int = 1440, full: bool = False) -> dict:
+    """Returns {url, title, text, hero: Path, blocks: [{id, path, w, h, text}], full: {path, w, h} | None}.
+    full=True also takes a screenshot of the whole page (for the scrolling page-tour scene)."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    result = {"url": url, "title": "", "text": "", "hero": None, "blocks": []}
+    result = {"url": url, "title": "", "text": "", "hero": None, "blocks": [], "full": None}
     with browser.browser_context(viewport={"width": width, "height": 900}, device_scale_factor=2) as ctx:
         page = ctx.new_page()
         browser.open_page(page, url)
@@ -68,6 +72,19 @@ def capture(url: str, out_dir: Path, max_blocks: int = 14, width: int = 1440) ->
         hero = out_dir / "hero.png"
         page.screenshot(path=str(hero))
         result["hero"] = hero
+        if full:
+            try:
+                h = min(int(page.evaluate("document.documentElement.scrollHeight")), MAX_FULL_H)
+                fp = out_dir / "full.jpg"
+                page.screenshot(path=str(fp), clip={"x": 0, "y": 0, "width": width, "height": max(900, h)},
+                                full_page=True, type="jpeg", quality=82)
+                im = Image.open(fp)
+                if im.width > 1800:  # 2x screenshot -> keep the file small, still crisp in a 1040 px window
+                    im = im.resize((1800, round(im.height * 1800 / im.width)), Image.LANCZOS)
+                    im.convert("RGB").save(fp, quality=84)
+                result["full"] = {"path": fp, "w": im.width, "h": im.height}
+            except Exception as e:
+                log.warning("full-page screenshot failed on %s: %s", url, e)
         try:
             infos = page.evaluate(_FIND_BLOCKS_JS, max_blocks)
         except Exception as e:

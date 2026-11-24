@@ -226,6 +226,9 @@ def delete_files(item: ContentItem) -> None:
         storage.delete_media(ref)
     if item.kind == "video" and item.media_path:  # the editable storyboard + screens kept for video edits
         storage.delete_video_source(item.media_path)
+    ref = item.options.get("outline_ref") if item.kind == "video" else ""
+    if ref:  # an outline that was never made into a video
+        storage.delete_video_source(ref, prefix=storage.outline_prefix(item.id))
 
 
 def _stopped(item_id: int) -> ContentItem | None:
@@ -290,13 +293,15 @@ def _normalize_url(url: str) -> str:
     return "https://" + url
 
 
-def create_url_item(url: str, kind: str = "video", notes: str = "") -> int:
-    """Create the queue row right away (so the UI can open it) – then call generate_from_url(item_id=…)."""
+def create_url_item(url: str, kind: str = "video", notes: str = "", options: dict | None = None) -> int:
+    """Create the queue row right away (so the UI can open it) – then call generate_from_url(item_id=…).
+    options: {length: short|full|series, outline: bool, screenshots: [{ref, caption}]}"""
     url = _normalize_url(url)
     with get_session() as s:
         item = ContentItem(run_date=today(), kind=kind, source="url", origin="url", source_url=url, notes=notes,
                            topic=f"{url} …", status="generating", stage="Queued",
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
+        item.options = options or {}
         s.add(item)
         s.commit()
         return item.id
@@ -317,6 +322,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
         item.worker = worker_name()
         s.commit()
         item_id = item.id
+        opts = item.options
     from .research import explorer
     local = explorer.is_local(url)
     if not on_worker and video_on_pc() and (kind == "video" or local):
@@ -331,13 +337,19 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
             knowledge = explorer.explore(url)          # wakes sleeping hosts, reads every useful page
             progress.report(f"Read {len(knowledge['pages'])} pages – working out the brand", 8)
             brand = planner.brand_for_url(knowledge.get("start") or url, knowledge=knowledge)
+            length = opts.get("length", "")
+            focus = opts.get("focus_url", "")
+            if kind == "video" and length == "series" and not focus:
+                focus = _start_series(item_id, knowledge, day, notes, opts)
             with use_brand(brand):
-                plan = planner.plan_for_url(url, kind, day, notes, knowledge=knowledge)
+                plan = planner.plan_for_url(url, kind, day, notes, knowledge=knowledge, length=length, focus_url=focus)
                 progress.report(f"Planned: {plan['topic']}", 8)
-                gen = engine.create(plan, day, item_id, kind, own=False)
-                qa = _quality(kind, gen, plan["topic"], item_id)
+                gen = engine.create(plan, day, item_id, kind, own=False, options={**opts, "uploads": _uploads(opts)})
+                qa = None if gen.get("outline") else _quality(kind, gen, plan["topic"], item_id)
             copy = gen["copy"]
             progress.check()
+            if gen.get("outline"):  # Phase 6: the user checks the scenes first, then presses "Make video"
+                return _save_outline(item_id, gen, brand, plan)
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
                 _save_creative(item, gen)
@@ -362,6 +374,88 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
                 item.status, item.error, item.stage = "failed", str(e)[:2000], ""
                 s.commit()
             return item
+
+
+def _uploads(opts: dict) -> list[dict]:
+    """The user's screenshots as local files (downloaded from cloud storage on the PC worker)."""
+    out = []
+    for sh in (opts.get("screenshots") or [])[:8]:
+        try:
+            out.append({"path": str(storage.local_file(sh["ref"])), "caption": str(sh.get("caption", ""))[:200]})
+        except Exception as e:
+            log.warning("screenshot %s not available: %s", sh, e)
+    return out
+
+
+def _save_outline(item_id: int, gen: dict, brand: dict, plan: dict) -> ContentItem:
+    src = Path(gen["video_source"])
+    prefix = storage.outline_prefix(item_id)
+    ref = ""
+    for f in src.iterdir():  # storyboard.json last – its reference says where the outline lives
+        if f.name != "storyboard.json":
+            storage.save_file(f, f"{prefix}/{f.name}")
+    ref = storage.save_file(src / "storyboard.json", f"{prefix}/storyboard.json")
+    shutil.rmtree(src, ignore_errors=True)
+    copy = gen["copy"]
+    with get_session() as s:
+        item = s.get(ContentItem, item_id)
+        opts = item.options
+        opts["outline_ref"] = ref
+        item.options = opts
+        item.format, item.theme, item.product = gen.get("format", ""), gen.get("theme", ""), gen.get("product", "")
+        item.topic = f"{brand['name']}: {plan['topic']}"[:300]
+        item.angle = plan["angle"]
+        item.captions = copy.get("captions", {})
+        item.hashtags = gen["hashtags"]
+        item.script_json = gen.get("script_json") or ""
+        item.status, item.stage, item.progress, item.error = "outline", "", 100, ""
+        s.commit()
+        s.refresh(item)
+    from .config import frontend_url
+    notify.telegram(f"🎬 Video outline ready – check the scenes, then press Make video\n<b>{item.topic}</b>\n"
+                    f"{frontend_url()}/items/{item.id}")
+    return item
+
+
+SERIES_MAX = 5
+
+
+def _start_series(item_id: int, knowledge: dict, day: date, notes: str, opts: dict) -> str:
+    """Series = one short Reel per page, one per day. This item takes the first page; the others get their own
+    items (dated the following days) and are made right after. Returns this item's page URL."""
+    from datetime import timedelta
+    pages = planner.series_pages(knowledge, SERIES_MAX)
+    if not pages:
+        return ""
+    with get_session() as s:
+        me = s.get(ContentItem, item_id)
+        o = dict(opts, focus_url=pages[0]["url"], series_of=item_id, series_part=1, series_total=len(pages))
+        me.options = o
+        opts.update(o)
+        new_ids = []
+        for i, p in enumerate(pages[1:], start=2):
+            it = ContentItem(run_date=day + timedelta(days=i - 1), kind="video", source="url", origin="url",
+                             source_url=me.source_url, notes=notes, topic=f"{p['name']} (part {i} of {len(pages)}) …",
+                             status="generating", stage="Waiting for part 1 of the series", platforms=me.platforms)
+            it.options = {"length": "series", "outline": bool(opts.get("outline")), "focus_url": p["url"],
+                          "series_of": item_id, "series_part": i, "series_total": len(pages)}
+            s.add(it)
+            s.flush()
+            new_ids.append(it.id)
+        s.commit()
+    log.info("series from #%s: %s more part(s) %s", item_id, len(new_ids), new_ids)
+    for nid in new_ids:
+        if video_on_pc() and worker_name() == "server":
+            _queue_for_pc(nid)
+        else:  # made one after another (the lock) right after this one
+            with get_session() as s:
+                it = s.get(ContentItem, nid)
+                url, notes_ = it.source_url, it.notes
+                it.status, it.stage = "queued", "Next in the series"
+                s.commit()
+            if not video_on_pc():
+                threading.Thread(target=generate_from_url, args=(url, "video", notes_, day, nid), daemon=True).start()
+    return pages[0]["url"]
 
 
 def _notify_new(item: ContentItem) -> None:

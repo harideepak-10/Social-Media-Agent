@@ -223,12 +223,13 @@ Identify this website's brand for a social media campaign. Return JSON:
     return brand
 
 
-def plan_for_url(url: str, kind: str, day: date, notes: str = "", knowledge: dict | None = None) -> dict:
+def plan_for_url(url: str, kind: str, day: date, notes: str = "", knowledge: dict | None = None,
+                 length: str = "", focus_url: str = "") -> dict:
     """Plan a video/post about any website. `notes` = optional focus from the user.
     knowledge: the site explorer's notes on every page (explorer.explore) – the plan can use any page."""
     if knowledge:
         from ..research import explorer
-        return _plan_from_knowledge(url, kind, day, notes, knowledge, explorer)
+        return _plan_from_knowledge(url, kind, day, notes, knowledge, explorer, length, focus_url)
     site = website.summary(url)
     if not site:
         raise RuntimeError(f"Could not read any content from {url}")
@@ -258,11 +259,16 @@ Return JSON:
             "context": f"User's focus: {notes}" if notes else "", "site_summary": site}
 
 
-def _plan_from_knowledge(url: str, kind: str, day: date, notes: str, k: dict, explorer) -> dict:
-    """Plan with the WHOLE website understood: pick the pages that tell the story, in customer-journey order."""
+def _plan_from_knowledge(url: str, kind: str, day: date, notes: str, k: dict, explorer, length: str = "",
+                         focus_url: str = "") -> dict:
+    """Plan with the WHOLE website understood: pick the pages that tell the story, in customer-journey order.
+    length "full" = a long walkthrough (more pages); focus_url = one part of a series (that page only)."""
+    focus_page = explorer.page_for(k, focus_url) if focus_url else None
+    if focus_page:
+        notes = (notes + " | " if notes else "") + f"This video is about ONE page only: {focus_page['name']} ({focus_page['url']})"
     site = explorer.as_text(k, max_chars=14000, focus=notes)
     used = recent_topics(20)
-    n_pages = "3-6" if kind == "video" else "1-2"
+    n_pages = ("1" if focus_page else "5-8" if length == "full" else "3-6") if kind == "video" else "1-2"
     prompt = f"""{_brand_block()}
 
 THE WEBSITE, PAGE BY PAGE (read by our site explorer):
@@ -288,6 +294,8 @@ Return JSON:
             if isinstance(u, str) and explorer._norm(u) in known]
     if not urls:  # fall back to the most important pages
         urls = [p["url"] for p in sorted(k["pages"], key=lambda p: -p["importance"])][:4 if kind == "video" else 1]
+    if focus_page:
+        urls = [focus_page["url"]]
     chosen = [explorer.page_for(k, u) for u in urls]
     facts = "\n\n".join(
         f"PAGE {p['name']} ({p['url']}): {p['purpose']}\nFeatures: {'; '.join(p['features'])}\n"
@@ -299,4 +307,16 @@ Return JSON:
             "story": [str(x)[:200] for x in data.get("story") or []][:10],
             "product": {"name": company().get("name", ""), "url": urls[0], "description": overview or company().get("tagline", "")},
             "context": f"User's focus: {notes}" if notes else "",
+            "pages_meta": [{"url": p["url"], "name": p["name"]} for p in chosen if p],
             "site_summary": (f"ABOUT: {overview}\n\n" if overview else "") + facts}
+
+
+def series_pages(k: dict, n: int = 5) -> list[dict]:
+    """The pages a "Series" covers (one short Reel each): the customer journey first, then by importance;
+    no legal/login/blog pages."""
+    skip = {"blog", "careers", "contact", "docs", "other"}
+    good = [p for p in k["pages"] if str(p.get("type", "")).lower() not in skip and p.get("importance", 0) >= 3]
+    journey = (k.get("overview") or {}).get("journey") or []
+    order = {name: i for i, name in enumerate(journey)}
+    good.sort(key=lambda p: (order.get(p["name"], 99), -p.get("importance", 0)))
+    return good[:n]

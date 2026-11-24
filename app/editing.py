@@ -22,7 +22,7 @@ from .config import company, settings
 from .db import ContentItem, get_session
 
 log = logging.getLogger(__name__)
-EDITABLE_STATUSES = ("pending_approval", "approved", "failed", "rejected", "partial")
+EDITABLE_STATUSES = ("pending_approval", "approved", "failed", "rejected", "partial", "outline")
 
 
 class EditError(Exception):
@@ -101,13 +101,21 @@ def save_poster(item_id: int, html: str) -> tuple[ContentItem, list[str]]:
 
 
 # ── videos ─────────────────────────────────────────────────────────────────
+def source_loc(item: ContentItem) -> tuple[str, str]:
+    """(storage prefix, reference "like") of a video's storyboard – the finished video's, or the outline's."""
+    if item.kind == "video" and item.media_path:
+        return storage.video_source_prefix(item.media_path), item.media_path
+    ref = item.options.get("outline_ref") if item.kind == "video" else ""
+    if ref:
+        return storage.outline_prefix(item.id), ref
+    raise EditError("Only videos have a storyboard")
+
+
 def _source_dir(item: ContentItem, work: Path) -> Path:
     """Bring storyboard.json + screens of this video into `work` (from the cloud if needed)."""
-    if item.kind != "video" or not item.media_path:
-        raise EditError("Only videos have a storyboard")
-    prefix = storage.video_source_prefix(item.media_path)
+    prefix, like = source_loc(item)
     work.mkdir(parents=True, exist_ok=True)
-    ref = storage.media_ref_for(f"{prefix}/storyboard.json", like=item.media_path)
+    ref = storage.media_ref_for(f"{prefix}/storyboard.json", like=like)
     text = storage.read_text_ref(ref)
     if not text:
         raise EditError("This video was made before scene editing was available – use Regenerate instead")
@@ -115,7 +123,7 @@ def _source_dir(item: ContentItem, work: Path) -> Path:
     for sc in json.loads(text).get("scenes") or []:
         f = (sc.get("_block") or {}).get("file")
         if f and not (work / f).exists():
-            local = storage.local_file(storage.media_ref_for(f"{prefix}/{f}", like=item.media_path))
+            local = storage.local_file(storage.media_ref_for(f"{prefix}/{f}", like=like))
             shutil.copy(local, work / f)
     return work
 
@@ -129,11 +137,15 @@ def storyboard(item_id: int) -> dict:
         work = storage.WORK_DIR / f"sb_{item_id}"
         try:
             board, theme, product = video_studio.load_source(_source_dir(item, work))
-            prefix = storage.video_source_prefix(item.media_path)
+            prefix, like = source_loc(item)
             for sc in board.get("scenes") or []:
-                f = (sc.pop("_block", None) or {}).get("file")
-                sc["screen"] = storage.web_url(storage.media_ref_for(f"{prefix}/{f}", like=item.media_path)) if f else ""
+                b = sc.pop("_block", None) or {}
+                f = b.get("file")
+                sc["screen"] = storage.web_url(storage.media_ref_for(f"{prefix}/{f}", like=like)) if f else ""
+                sc["screen_tall"] = bool(b.get("h", 0) > 2 * max(1, b.get("w", 1)))
+                sc.setdefault("type", "feature")
             board["voice_name"] = board.get("voice_name") or (settings().get("video") or {}).get("voice", "")
+            board["_seconds"] = video_studio.estimate_seconds(board)
             return {"board": board, "theme": theme, "product": product}
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -158,8 +170,9 @@ def rewrite(item_id: int, part: str, instruction: str) -> dict:
 TEXT_LIMIT = 400
 
 
-def save_storyboard(item_id: int, edits: dict, voice_name: str) -> ContentItem:
-    """Apply text edits + voice, store the new storyboard and start (or queue) the rebuild."""
+def save_storyboard(item_id: int, edits: dict, voice_name: str, render: bool = True) -> ContentItem:
+    """Apply text edits, scene order/removal + voice, store the new storyboard and start (or queue) the
+    rebuild. For an outline, render=False only saves it ("Save outline"); render=True is "Make video"."""
     from .creative import video_studio
     with get_session() as s:
         item = s.get(ContentItem, item_id)
@@ -179,6 +192,10 @@ def save_storyboard(item_id: int, edits: dict, voice_name: str) -> ContentItem:
                 if kind == "scene" and isinstance((new or {}).get("bullets"), list):
                     dst["bullets"] = [{"icon": str(b.get("icon", "check"))[:20], "text": str(b.get("text", ""))[:160]}
                                       for b in new["bullets"][:5] if isinstance(b, dict)]
+                if kind == "scene" and isinstance((new or {}).get("steps"), list):
+                    dst["steps"] = [{"icon": str(b.get("icon", "check"))[:20], "title": str(b.get("title", ""))[:60],
+                                     "desc": str(b.get("desc", ""))[:120]}
+                                    for b in new["steps"][:6] if isinstance(b, dict) and b.get("title")] or dst.get("steps")
 
             for kind in ("festive", "intro", "grid", "outro"):
                 if kind in edits and isinstance(board.get(kind), dict):
@@ -186,18 +203,34 @@ def save_storyboard(item_id: int, edits: dict, voice_name: str) -> ContentItem:
             for i, sc in enumerate(edits.get("scenes") or []):
                 if i < len(board.get("scenes") or []):
                     apply(board["scenes"][i], sc, "scene")
+            order = edits.get("order")
+            if isinstance(order, list):  # new order of the ORIGINAL scene numbers; a missing number = removed
+                old = board.get("scenes") or []
+                keep = [int(i) for i in order if str(i).lstrip("-").isdigit() and 0 <= int(i) < len(old)]
+                keep = list(dict.fromkeys(keep))
+                if not keep:
+                    raise EditError("Keep at least one scene")
+                board["scenes"] = [old[i] for i in keep]
+            if "grid" in edits and edits["grid"] is None:
+                board.pop("grid", None)
             from .generators import tts
             board["voice_name"] = tts.english_voice((voice_name or "").strip()[:60])
             (src / "storyboard.json").write_text(json.dumps(board, ensure_ascii=False, indent=1), encoding="utf-8")
-            prefix = storage.video_source_prefix(item.media_path)
-            storage.save_file(src / "storyboard.json", f"{prefix}/storyboard.json", like=item.media_path)
+            prefix, like = source_loc(item)
+            storage.save_file(src / "storyboard.json", f"{prefix}/storyboard.json", like=like)
         finally:
             shutil.rmtree(work, ignore_errors=True)
-        item.job, item.error, item.progress = "rebuild", "", 0
+        if item.status == "outline" and not render:
+            s.refresh(item)
+            return item
+        item.job, item.error, item.progress = ("render" if item.status == "outline" else "rebuild"), "", 0
+        first = item.job == "render"
         if pipeline.video_on_pc():
-            item.status, item.stage, item.worker = "queued", "Waiting for your PC to rebuild this video", ""
+            item.status, item.worker = "queued", ""
+            item.stage = "Waiting for your PC to make this video" if first else "Waiting for your PC to rebuild this video"
         else:
-            item.status, item.stage, item.worker = "generating", "Rebuilding with your edits", pipeline.worker_name()
+            item.status, item.worker = "generating", pipeline.worker_name()
+            item.stage = "Making the video from your outline" if first else "Rebuilding with your edits"
         s.commit()
         s.refresh(item)
         return item
@@ -212,6 +245,9 @@ def rebuild_video(item_id: int) -> ContentItem | None:
         item = s.get(ContentItem, item_id)
         old = {"media": item.media_path, "alt": item.media_alt_path, "thumb": item.thumb_path}
         captions, tags, topic, platforms = item.captions, item.hashtags, item.topic, item.platform_list
+        first = not item.media_path  # an approved outline: the video is made for the first time
+        old_prefix, old_like = source_loc(item)
+        run_date = item.run_date
         work = storage.WORK_DIR / f"rebuild_{item_id}"
         shutil.rmtree(work, ignore_errors=True)
         src = _source_dir(item, work / "src")
@@ -225,7 +261,10 @@ def rebuild_video(item_id: int) -> ContentItem | None:
                     shutil.copy(b["path"], work / Path(b["path"]).name)
             vcfg = settings().get("video") or {}
             orientations = vcfg.get("formats") or ["landscape", "vertical"]
-            base = storage.next_version(re.sub(r"_(16x9|9x16|1x1)$", "", storage.ref_stem(old["media"])))
+            if first:
+                base = storage.base_name(run_date, item_id, {"topic": topic.split(":", 1)[-1]}, "walkthrough")
+            else:
+                base = storage.next_version(re.sub(r"_(16x9|9x16|1x1)$", "", storage.ref_stem(old["media"])))
             targets = {"landscape": storage.VIDEOS_DIR / f"{base}_16x9.mp4",
                        "vertical": storage.VIDEOS_DIR / f"{base}_9x16.mp4"}
             files = video_studio.build(board, theme or "amber_noir", work, targets, product, orientations,
@@ -263,12 +302,23 @@ def rebuild_video(item_id: int) -> ContentItem | None:
                     storage.delete_media(ref)
             if old["media"]:
                 storage.delete_video_source(old["media"])
+            else:  # the outline's own copy
+                storage.delete_video_source(old_like, prefix=old_prefix)
             with get_session() as s:
-                return s.get(ContentItem, item_id)
+                item = s.get(ContentItem, item_id)
+                if first:
+                    opts = item.options
+                    opts.pop("outline_ref", None)
+                    item.options = opts
+                    s.commit()
+                    pipeline._notify_new(item)
+                return item
     except progress.Stopped:
         log.info("rebuild of #%s stopped by the user", item_id)
         with get_session() as s:
             item = s.get(ContentItem, item_id)
+            if first:  # back to the outline, nothing is lost
+                item.status, item.stage, item.error = "outline", "", ""
             item.job = ""
             s.commit()
             return item
@@ -277,8 +327,12 @@ def rebuild_video(item_id: int) -> ContentItem | None:
         with get_session() as s:
             item = s.get(ContentItem, item_id)
             # the previous files are untouched – go back to them
-            item.status, item.stage, item.job = "pending_approval", "", ""
-            item.error = f"Rebuilding with your edits failed – the previous version is kept. ({str(e)[:300]})"
+            if first:
+                item.status, item.stage, item.job = "outline", "", ""
+                item.error = f"Making the video failed – your outline is kept, try again. ({str(e)[:300]})"
+            else:
+                item.status, item.stage, item.job = "pending_approval", "", ""
+                item.error = f"Rebuilding with your edits failed – the previous version is kept. ({str(e)[:300]})"
             s.commit()
             return item
     finally:

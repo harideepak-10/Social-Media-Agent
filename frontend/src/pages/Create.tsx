@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowRight, Film, Globe, ImageIcon, Palette, ScanSearch, Sparkles, Wand2 } from "lucide-react";
-import { api } from "../lib/api";
+import { ArrowRight, Film, Globe, ImageIcon, ListChecks, Palette, ScanSearch, Sparkles, Wand2 } from "lucide-react";
+import { api, type VideoLength } from "../lib/api";
+import ScreenshotDrop, { type Shot } from "../components/ScreenshotDrop";
 import { ago, displayTitle } from "../lib/ui";
 import { Button, Card, StatusBadge, useToast } from "../components/ui";
 
@@ -23,6 +24,10 @@ export default function Create() {
   const [kind, setKind] = useState<"video" | "post">("video");
   const [notes, setNotes] = useState("");
   const [touched, setTouched] = useState(false);
+  const [length, setLength] = useState<VideoLength>("short");
+  const [outline, setOutline] = useState(true);
+  const [shots, setShots] = useState<Shot[]>([]);
+  const uploading = shots.some((s) => !s.ref);
 
   const cleaned = url.trim();
   const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(:\d+)?(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
@@ -33,7 +38,10 @@ export default function Create() {
   const fromLinks = (recent.data?.items ?? []).filter((i) => i.source_url).slice(0, 6);
 
   const create = useMutation({
-    mutationFn: () => api.fromUrl(cleaned, kind, notes),
+    mutationFn: () => api.fromUrl(cleaned, kind, notes, {
+      length, outline,
+      screenshots: shots.filter((s) => s.ref).map((s) => ({ ref: s.ref!, caption: s.caption })),
+    }),
     onSuccess: ({ id }) => {
       qc.invalidateQueries({ queryKey: ["items"] });
       qc.invalidateQueries({ queryKey: ["meta"] });
@@ -73,7 +81,7 @@ export default function Create() {
               <label className="text-sm font-bold">What should it make?</label>
               <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {([
-                  ["video", Film, "Promo video", "16:9 + 9:16 with voice-over and music · about 5 min"],
+                  ["video", Film, "Walkthrough video", "16:9 + 9:16 with voice-over and music · 5–15 min to make"],
                   ["post", ImageIcon, "Designed post", "1080×1350 image with captions · about 1 min"],
                 ] as const).map(([k, Icon, title, sub]) => (
                   <button type="button" key={k} onClick={() => setKind(k)}
@@ -86,6 +94,43 @@ export default function Create() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {kind === "video" && (
+              <div>
+                <label className="text-sm font-bold">How long?</label>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {([
+                    ["short", "Short", "45–60 s highlight · Reels & LinkedIn"],
+                    ["full", "Full walkthrough", "2–4 min · every main page + how it works"],
+                    ["series", "Series", "One short Reel per page, one a day (up to 5)"],
+                  ] as const).map(([k, t, d]) => (
+                    <button type="button" key={k} onClick={() => setLength(k)}
+                      className={clsx("rounded-xl p-3 text-left ring-1 transition",
+                        length === k ? "bg-brand-50 ring-2 ring-brand-600" : "bg-white ring-stone-200 hover:ring-stone-300")}>
+                      <span className="block text-sm font-semibold">{t}</span>
+                      <span className="mt-0.5 block text-xs text-stone-500">{d}</span>
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200">
+                  <input type="checkbox" checked={outline} onChange={(e) => setOutline(e.target.checked)} className="mt-0.5 size-4 accent-brand-600" />
+                  <span>
+                    <span className="flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="size-4 text-stone-500" /> Show me the outline first</span>
+                    <span className="block text-xs text-stone-500">Check, reorder, rename or remove scenes before the video is made – saves a slow re-render.</span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <div>
+              <label className="text-sm font-bold">Your screenshots <span className="font-normal text-stone-400">(optional)</span></label>
+              <p className="mt-0.5 text-xs text-stone-500">
+                {kind === "video"
+                  ? "Add screens the agent can't reach itself – e.g. inside your app after login. Each one becomes a scene, with your caption."
+                  : "Add a screen of your product – the post shows it instead of a captured one."}
+              </p>
+              <ScreenshotDrop shots={shots} onChange={setShots} max={kind === "video" ? 8 : 2} />
             </div>
 
             <div>
@@ -102,8 +147,9 @@ export default function Create() {
             </div>
 
             <Button type="submit" variant="primary" className="w-full py-3 text-base" loading={create.isPending}
-              icon={<Wand2 className="size-5" />} disabled={!cleaned}>
-              Create {kind === "video" ? "video" : "post"}
+              icon={<Wand2 className="size-5" />} disabled={!cleaned || uploading}>
+              {uploading ? "Uploading screenshots…" : kind === "post" ? "Create post"
+                : length === "series" ? "Create series" : outline ? "Create outline" : "Create video"}
             </Button>
           </form>
         </Card>

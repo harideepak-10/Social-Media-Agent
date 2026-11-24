@@ -7,7 +7,7 @@ import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 
@@ -20,7 +20,7 @@ from .research import calendar
 router = APIRouter(prefix="/api")
 User = Depends(auth.require_user)
 ACTIONS = ("approve", "reject", "regenerate", "publish", "stop", "check")
-DELETABLE = ("rejected", "failed")
+DELETABLE = ("rejected", "failed", "outline")
 
 
 def _bg(fn, *args, **kw):
@@ -69,6 +69,7 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
         "deleted_at": i.deleted_at.isoformat() + "Z" if i.deleted_at else None,
         "missed": i.status == "approved" and i.run_date < pipeline.today() - timedelta(days=1),
         "metrics": _metrics_summary(i),
+        "options": _options_summary(i),
     }
     if full:
         try:
@@ -81,12 +82,20 @@ def serialize(i: ContentItem, full: bool = False) -> dict:
     return data
 
 
+def _options_summary(i: ContentItem) -> dict:
+    o = i.options
+    out = {k: o[k] for k in ("length", "outline", "series_part", "series_total", "series_of") if k in o}
+    if o.get("screenshots"):
+        out["screenshots"] = len(o["screenshots"])
+    return out
+
+
 def _editable(i: ContentItem) -> dict:
     """Which in-place editors are available for this item."""
     from . import storage
     poster = bool(i.kind == "post" and i.media_path and i.format != "simple"
                   and (storage.is_url(i.media_path) or (DATA_DIR / "media" / storage.poster_source_key(i.media_path)).exists()))
-    video = bool(i.kind == "video" and i.media_path and i.format != "simple")
+    video = bool(i.kind == "video" and i.format != "simple" and (i.media_path or (i.status == "outline" and i.options.get("outline_ref"))))
     return {"poster_text": poster, "video_scenes": video}
 
 
@@ -413,7 +422,10 @@ def item_action(item_id: int, action: str, _: str = User):
         elif action == "stop":
             if item.status not in ("generating", "queued"):
                 raise HTTPException(409, "This item isn't being made")
-            item.status, item.stage, item.progress, item.error = "rejected", "", 0, "Stopped by you"
+            if item.job == "render":  # making a video from an outline: go back to the outline
+                item.status, item.stage, item.progress, item.error, item.job = "outline", "", 0, "Stopped by you", ""
+            else:
+                item.status, item.stage, item.progress, item.error = "rejected", "", 0, "Stopped by you"
         elif action == "regenerate":
             url, kind, notes, day = item.source_url, item.kind, item.notes, item.run_date
             if url:
@@ -446,17 +458,76 @@ def item_action(item_id: int, action: str, _: str = User):
 
 
 # ── create ────────────────────────────────────────────────────────────────
+class ShotIn(BaseModel):
+    ref: str = Field(min_length=4, max_length=600)
+    caption: str = Field("", max_length=200)
+
+
 class FromUrlIn(BaseModel):
     url: str = Field(min_length=4)
     kind: str = "video"
     notes: str = ""
+    length: str = "short"          # video: short | full | series
+    outline: bool = True           # video: show the scene outline first, render after "Make video"
+    screenshots: list[ShotIn] = Field(default_factory=list, max_length=8)
+
+
+UPLOAD_KEY = re.compile(r"uploads/shots/[0-9a-f]{32}\.(png|jpg)$")
+
+
+@router.post("/uploads/screenshot")
+async def upload_screenshot(file: UploadFile = File(...), _: str = User):
+    """A screenshot for Create from URL (e.g. inside the app, behind a login). Returns {ref, url}."""
+    import uuid
+    from io import BytesIO
+    from PIL import Image
+    from . import storage
+    data = await file.read()
+    if len(data) > 10_000_000:
+        raise HTTPException(400, "Screenshots must be under 10 MB")
+    try:
+        img = Image.open(BytesIO(data))
+        img.load()
+    except Exception:
+        raise HTTPException(400, "That isn't an image – upload a PNG or JPG screenshot")
+    if img.width < 300 or img.height < 200:
+        raise HTTPException(400, "That image is too small – upload a real screenshot")
+    if img.width > 2600:  # keep the files light
+        img = img.resize((2600, round(img.height * 2600 / img.width)))
+    key = f"uploads/shots/{uuid.uuid4().hex}"
+    tmp = storage.WORK_DIR / "uploads"
+    tmp.mkdir(parents=True, exist_ok=True)
+    if img.mode in ("RGBA", "LA", "P"):
+        key += ".png"
+        img.convert("RGBA").save(tmp / Path(key).name, optimize=True)
+    else:
+        key += ".jpg"
+        img.convert("RGB").save(tmp / Path(key).name, quality=90)
+    ref = storage.save_file(tmp / Path(key).name, key)
+    (tmp / Path(key).name).unlink(missing_ok=True)
+    return {"ref": ref, "url": storage.web_url(ref), "w": img.width, "h": img.height}
 
 
 @router.post("/from-url")
 def from_url(body: FromUrlIn, _: str = User):
     if body.kind not in ("video", "post"):
         raise HTTPException(400, "kind must be video or post")
-    item_id = pipeline.create_url_item(body.url, body.kind, body.notes.strip())
+    if body.length not in ("short", "full", "series"):
+        raise HTTPException(400, "length must be short, full or series")
+    shots = []
+    for sh in body.screenshots:
+        key = sh.ref.split("/storage/v1/object/public/", 1)[-1].split("/", 1)[-1] if sh.ref.startswith("http") \
+            else sh.ref.replace("\\", "/")
+        m = UPLOAD_KEY.search(key)
+        if not m:  # only files that came from /uploads/screenshot
+            raise HTTPException(400, "Unknown screenshot – upload it again")
+        from . import storage
+        ref = storage.remote_url(m.group(0)) if storage.remote_enabled() else str(MEDIA_DIR / m.group(0))
+        shots.append({"ref": ref, "caption": sh.caption.strip()})
+    options = {"screenshots": shots} if shots else {}
+    if body.kind == "video":
+        options.update(length=body.length, outline=body.outline)
+    item_id = pipeline.create_url_item(body.url, body.kind, body.notes.strip(), options)
     _bg(pipeline.generate_from_url, body.url, body.kind, body.notes.strip(), None, item_id)
     return {"id": item_id}
 

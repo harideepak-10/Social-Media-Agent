@@ -2,7 +2,7 @@
 
 export type Status =
   | "generating" | "queued" | "pending_approval" | "approved" | "publishing" | "published" | "dry_run"
-  | "partial" | "failed" | "rejected";
+  | "partial" | "failed" | "rejected" | "outline";
 
 export type Platform = "instagram" | "facebook" | "linkedin";
 
@@ -34,7 +34,15 @@ export interface Item {
   deleted_at: string | null;     // in the bin
   missed: boolean;               // approved, but its day passed without posting
   metrics: Metrics | null;
+  options: ItemOptions;
 }
+
+export type VideoLength = "short" | "full" | "series";
+export interface ItemOptions {
+  length?: VideoLength; outline?: boolean; screenshots?: number;
+  series_part?: number; series_total?: number; series_of?: number;
+}
+export interface Screenshot { ref: string; url: string; caption: string; w?: number; h?: number }
 
 export interface Metrics { likes: number; comments: number; shares: number; reach: number; views: number; clicks: number; engagement?: number }
 export type PlatformMetrics = Partial<Metrics> & { fetched_at?: string; error?: string; notes?: string };
@@ -81,9 +89,11 @@ export interface SceneTexts {
   eyebrow?: string; headline?: string; accent?: string; sub?: string; voice?: string; cta?: string; url?: string;
   greeting?: string; name?: string; quote?: string;
   bullets?: { icon: string; text: string }[]; badges?: { value: string; label: string }[]; screen?: string;
+  type?: "feature" | "tour" | "workflow"; page_name?: string; screen_tall?: boolean;
+  steps?: { icon: string; title: string; desc: string }[];
 }
 export interface Storyboard {
-  board: { festive?: SceneTexts; intro?: SceneTexts; scenes: SceneTexts[]; grid?: SceneTexts & { items?: unknown[] }; outro?: SceneTexts; voice_name: string };
+  board: { festive?: SceneTexts; intro?: SceneTexts; scenes: SceneTexts[]; grid?: SceneTexts & { items?: unknown[] }; outro?: SceneTexts; voice_name: string; _seconds?: number };
   theme: string; product: string;
 }
 
@@ -259,6 +269,12 @@ export const api = {
     request<{ part: string; texts: SceneTexts }>(`/api/items/${id}/storyboard/rewrite`, { method: "POST", body: JSON.stringify({ part, instruction }) }),
   saveStoryboard: (id: number, edits: Record<string, unknown>, voice_name: string) =>
     request<ItemDetail>(`/api/items/${id}/storyboard`, { method: "PUT", body: JSON.stringify({ edits, voice_name }) }),
+  saveOutline: (id: number, edits: Record<string, unknown>, voice_name: string, render: boolean) =>
+    request<ItemDetail>(`/api/items/${id}/storyboard`, { method: "PUT", body: JSON.stringify({ edits, voice_name, render }) }),
+  uploadScreenshot: (file: File) => {
+    const f = new FormData(); f.append("file", file);
+    return request<{ ref: string; url: string; w: number; h: number }>("/api/uploads/screenshot", { method: "POST", body: f });
+  },
   refreshMetrics: (id: number) => request<ItemDetail>(`/api/items/${id}/metrics`, { method: "POST" }),
   insights: (days = 30) => request<Insights>(`/api/insights?days=${days}`),
   refreshInsights: (days = 30) =>
@@ -268,8 +284,9 @@ export const api = {
   setupFinish: () => request<{ ok: boolean }>("/api/setup/finish", { method: "POST" }),
   setupRestart: () => request<{ ok: boolean }>("/api/setup/restart", { method: "POST" }),
   deleteRejected: () => request<{ deleted: number }>("/api/items/delete-rejected", { method: "POST" }),
-  fromUrl: (url: string, kind: "video" | "post", notes: string) =>
-    request<{ id: number }>("/api/from-url", { method: "POST", body: JSON.stringify({ url, kind, notes }) }),
+  fromUrl: (url: string, kind: "video" | "post", notes: string,
+            opts: { length?: VideoLength; outline?: boolean; screenshots?: { ref: string; caption: string }[] } = {}) =>
+    request<{ id: number }>("/api/from-url", { method: "POST", body: JSON.stringify({ url, kind, notes, ...opts }) }),
   schedule: () => request<Schedule>("/api/schedule"),
   saveSchedule: (body: Partial<Omit<Schedule, "next_runs" | "timezone">>) =>
     request<Schedule>("/api/schedule", { method: "PUT", body: JSON.stringify(body) }),

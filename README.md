@@ -145,6 +145,14 @@ python cli.py from-url https://anywebsite.com --notes "explain the booking featu
 ```
 You can also use the **🎬 Create from any website** box in the dashboard, or call `POST /api/from-url` with `{"url": "...", "kind": "video", "notes": ""}`.
 
+Video options on that page:
+- **How long:** *Short* (45–60 s highlight), *Full walkthrough* (2–4 min: a scrolling tour of every main page, screen
+  close-ups and an animated "how it works" scene), or *Series* (one short Reel per main page, dated one per day, up to 5).
+- **Show me the outline first** (on by default): the agent stops after writing the scenes. On the item page you can
+  reorder, remove and rename scenes, edit the voice-over and pick the voice, then press **Make video**.
+- **Your screenshots** (optional, up to 8, drag & drop or Ctrl+V): screens the agent can't reach itself, such as inside
+  your app after login. Each one becomes a scene with your caption; for a post, it is used as the screen in the design.
+
 What the agent does with the link:
 - **Explores the whole site** (not just the front page): sitemap, top menu, footer and links – up to 40 pages
   (25 for JavaScript apps). Login, legal, cart pages and single blog posts are skipped. The AI sorts every page

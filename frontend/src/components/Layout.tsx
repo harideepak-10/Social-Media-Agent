@@ -9,7 +9,7 @@ import { InstallLink } from "./Install";
 
 export default function Layout() {
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: api.meta, refetchInterval: 15000 });
-  const review = meta?.counts.pending_approval ?? 0;
+  const review = (meta?.counts.pending_approval ?? 0) + (meta?.counts.outline ?? 0);
   const running = (meta?.counts.generating ?? 0) + (meta?.counts.queued ?? 0);
   const pc = meta?.video_worker;
   const live = meta ? Object.values(meta.platforms).some(Boolean) : false;

@@ -81,12 +81,13 @@ def rewrite_part(item_id: int, body: RewriteIn, _: str = User):
 class StoryboardIn(BaseModel):
     edits: dict = {}
     voice_name: str = ""
+    render: bool = True    # outline: False = just save it, True = "Make video"
 
 
 @router.put("/items/{item_id}/storyboard")
 def put_storyboard(item_id: int, body: StoryboardIn, _: str = User):
     try:
-        item = editing.save_storyboard(item_id, body.edits, body.voice_name)
+        item = editing.save_storyboard(item_id, body.edits, body.voice_name, body.render)
     except editing.EditError as e:
         raise HTTPException(409, str(e))
     if item.status == "generating":  # this server renders it; otherwise the PC worker picks it up

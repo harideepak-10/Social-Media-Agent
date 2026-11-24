@@ -320,8 +320,13 @@ def next_version(stem: str) -> str:
     return f"{m.group(1)}_v{int(m.group(2)) + 1}" if m else f"{stem}_v2"
 
 
-def delete_video_source(video_ref: str) -> None:
-    prefix = video_source_prefix(video_ref)
+def outline_prefix(item_id: int) -> str:
+    """A video outline (storyboard waiting for "Make video") has no video file yet – its source lives here."""
+    return f"videos/source/outline-{item_id}"
+
+
+def delete_video_source(video_ref: str, prefix: str | None = None) -> None:
+    prefix = prefix or video_source_prefix(video_ref)
     try:
         if is_url(video_ref) and remote_enabled():
             keys = list_remote(prefix)

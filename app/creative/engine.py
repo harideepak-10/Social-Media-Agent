@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 from datetime import date
+from pathlib import Path
 
 from .. import storage
 from ..config import settings
@@ -17,25 +18,31 @@ from . import assets, festive, post_designer, rotation, sitetheme, video_studio,
 log = logging.getLogger(__name__)
 
 
-def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True) -> dict:
-    """Returns the generator result plus 'format', 'theme', 'product', 'alt', 'warning'."""
+def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True, options: dict | None = None) -> dict:
+    """Returns the generator result plus 'format', 'theme', 'product', 'alt', 'warning'.
+    options (Create from URL): length short|full|series, outline (stop at the storyboard), uploads
+    [{path, caption}] = the user's own screenshots."""
+    options = options or {}
     product = plan.get("product")
+    uploads = options.get("uploads") or []
+    length = {"series": "short"}.get(options.get("length", ""), options.get("length", ""))
+    vkw = dict(length=length, uploads=uploads, outline_only=bool(options.get("outline") and (length or uploads)))
     site = None if own else sitetheme.build((company() or {}).get("design") or {}, (company() or {}).get("brand_colors"))
     try:
         if kind == "video":
             if site:
-                gen = video_studio.generate(plan, day, item_id, "website", product, theme_spec=site[1])
-                gen.update(format="promo", theme="website")
+                gen = video_studio.generate(plan, day, item_id, "website", product, theme_spec=site[1], **vkw)
+                gen.update(format="walkthrough" if length else "promo", theme="website")
             else:
                 theme = rotation.pick_video_theme(own)
-                gen = video_studio.generate(plan, day, item_id, theme, product)
-                gen.update(format="promo", theme=theme)
+                gen = video_studio.generate(plan, day, item_id, theme, product, **vkw)
+                gen.update(format="walkthrough" if length else "promo", theme=theme)
         else:
-            gen = _post(plan, day, item_id, product, own, site[0] if site else None)
+            gen = _post(plan, day, item_id, product, own, site[0] if site else None, uploads)
         gen.update(product=(product or {}).get("name", ""), warning="")
         return gen
     except Exception as e:
-        if not (settings().get("creative") or {}).get("fallback", True):
+        if not (settings().get("creative") or {}).get("fallback", True) or vkw["outline_only"]:
             raise
         log.exception("premium %s engine failed – using the simple generator", kind)
         shutil.rmtree(storage.WORK_DIR / f"{kind}_{item_id}", ignore_errors=True)
@@ -46,7 +53,8 @@ def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True) -> 
         return gen
 
 
-def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool, site_theme: dict | None = None) -> dict:
+def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool, site_theme: dict | None = None,
+          uploads: list[dict] | None = None) -> dict:
     source = plan["source"]
     if source == "festival" or plan.get("festival"):
         # festival greetings use the dedicated designer (photo or illustrated scene + script lettering)
@@ -68,10 +76,23 @@ def _post(plan: dict, day: date, item_id: int, product: dict | None, own: bool, 
     if assets.image_provider():
         available.add("photo")
 
-    fmt = rotation.pick_post_format(source, available, own)
+    user_shots = []
+    for up in uploads or []:  # the user's own screenshots: always shown as the screen in the post
+        try:
+            from PIL import Image
+            with Image.open(up["path"]) as im:
+                user_shots.append({"id": f"U{len(user_shots)}", "path": Path(up["path"]), "w": im.width,
+                                   "h": im.height, "text": up.get("caption", "")})
+        except Exception as e:
+            log.warning("uploaded screenshot skipped: %s", e)
+    if user_shots:
+        available.add("shot")
+    fmt = "ui_showcase" if user_shots else rotation.pick_post_format(source, available, own)
     shots = []
     progress.report(f"Format: {fmt.replace('_', ' ')}", 12)
-    if fmt == "ui_showcase":
+    if fmt == "ui_showcase" and user_shots:
+        shots = user_shots[:2]
+    elif fmt == "ui_showcase":
         progress.report("Capturing product screenshots", 15)
         cap = visuals.capture(product["url"], storage.WORK_DIR / f"cap_{item_id}")
         # the most "screen-like" blocks: biggest area first

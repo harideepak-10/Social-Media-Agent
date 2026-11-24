@@ -3,6 +3,7 @@ import type { Platform, Status } from "./api";
 export const STATUS: Record<Status, { label: string; cls: string; dot: string }> = {
   generating: { label: "Generating", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200", dot: "bg-indigo-500 animate-pulse" },
   queued: { label: "Waiting for PC", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200", dot: "bg-indigo-300" },
+  outline: { label: "Outline ready", cls: "bg-violet-50 text-violet-700 ring-violet-200", dot: "bg-violet-500" },
   pending_approval: { label: "Needs review", cls: "bg-amber-50 text-amber-800 ring-amber-200", dot: "bg-amber-500" },
   approved: { label: "Approved", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500" },
   publishing: { label: "Posting now…", cls: "bg-sky-600 text-white ring-sky-600", dot: "bg-white" },

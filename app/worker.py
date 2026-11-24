@@ -63,7 +63,11 @@ def recover_stale(minutes: int = 5) -> int:
         items = s.scalars(select(ContentItem).where(ContentItem.status == "generating",
                                                     ContentItem.worker.notin_([me, ""]))).all()
         for it in items:
-            if it.worker in known and it.worker not in alive and it.job == "rebuild" and it.media_path:
+            if it.worker in known and it.worker not in alive and it.job == "render":
+                it.status, it.stage, it.job = "outline", "", ""
+                it.error = f"Your PC ({it.worker}) stopped while making this video – your outline is kept, press Make video again."
+                n += 1
+            elif it.worker in known and it.worker not in alive and it.job == "rebuild" and it.media_path:
                 it.status, it.stage, it.job = "pending_approval", "", ""
                 it.error = f"Your PC ({it.worker}) stopped while rebuilding your edit – the previous version is kept."
                 n += 1
@@ -110,7 +114,7 @@ def run_one(item: ContentItem) -> None:
     t = threading.Thread(target=beat, daemon=True)
     t.start()
     try:
-        if item.job == "rebuild":
+        if item.job in ("rebuild", "render"):  # render = an approved outline, made for the first time
             from . import editing
             editing.rebuild_video(item.id)
         elif item.source_url:
