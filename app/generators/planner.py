@@ -162,7 +162,7 @@ Return JSON:
 
 
 # ── "any website" mode ─────────────────────────────────────────────────────
-def brand_for_url(url: str, force: bool = False) -> dict:
+def brand_for_url(url: str, force: bool = False, knowledge: dict | None = None) -> dict:
     """Work out the brand (name, tagline, audience, colours) of any website. Cached per URL."""
     from . import browser
 
@@ -181,7 +181,11 @@ def brand_for_url(url: str, force: bool = False) -> dict:
         log.warning("brand detection failed for %s: %s", url, e)
         info = {"site_name": "", "title": "", "description": "",
                 "brand_colors": settings().get("company", {}).get("brand_colors", {}), "design": {}}
-    site = website.summary(url, max_chars=4000)
+    if knowledge:
+        from ..research import explorer
+        site = explorer.as_text(knowledge, max_chars=4000)
+    else:
+        site = website.summary(url, max_chars=4000)
     if not site:
         raise RuntimeError(f"Could not read any content from {url} – check the link opens in a browser")
     prompt = f"""Website: {url}
@@ -219,8 +223,12 @@ Identify this website's brand for a social media campaign. Return JSON:
     return brand
 
 
-def plan_for_url(url: str, kind: str, day: date, notes: str = "") -> dict:
-    """Plan a video/post about any website. `notes` = optional focus from the user."""
+def plan_for_url(url: str, kind: str, day: date, notes: str = "", knowledge: dict | None = None) -> dict:
+    """Plan a video/post about any website. `notes` = optional focus from the user.
+    knowledge: the site explorer's notes on every page (explorer.explore) – the plan can use any page."""
+    if knowledge:
+        from ..research import explorer
+        return _plan_from_knowledge(url, kind, day, notes, knowledge, explorer)
     site = website.summary(url)
     if not site:
         raise RuntimeError(f"Could not read any content from {url}")
@@ -248,3 +256,47 @@ Return JSON:
             "hook": data.get("hook", ""), "trend_used": "", "page_urls": urls,
             "product": {"name": company().get("name", ""), "url": url, "description": company().get("tagline", "")},
             "context": f"User's focus: {notes}" if notes else "", "site_summary": site}
+
+
+def _plan_from_knowledge(url: str, kind: str, day: date, notes: str, k: dict, explorer) -> dict:
+    """Plan with the WHOLE website understood: pick the pages that tell the story, in customer-journey order."""
+    site = explorer.as_text(k, max_chars=14000, focus=notes)
+    used = recent_topics(20)
+    n_pages = "3-6" if kind == "video" else "1-2"
+    prompt = f"""{_brand_block()}
+
+THE WEBSITE, PAGE BY PAGE (read by our site explorer):
+{site}
+
+TODAY: {day:%A %d %B %Y}
+CONTENT TYPE: {kind}  ({'explainer video that walks through the product: its pages, how it works and the benefits' if kind == 'video' else 'single image post with caption'})
+USER'S FOCUS: {notes or '(none – choose the most compelling story about the product)'}
+TOPICS USED RECENTLY (do not repeat): {used or 'none'}
+
+Plan a {kind}. Use the page notes above – not just the home page.
+- Choose {n_pages} pages (exact URLs from above) that best tell the story{' in the order a new customer should see them: overview -> core features -> how it works -> proof/pricing' if kind == 'video' else ''}.
+- If the user gave a focus, build around the pages that match it.
+- Use the real workflow steps and benefits from the notes; never invent features or numbers.
+
+Return JSON:
+{{"topic": "short topic title", "angle": "1-2 sentences: the idea and why viewers will care",
+  "hook": "scroll-stopping first line (max 10 words)", "page_urls": ["https://..."],
+  "story": ["{'one line per scene/beat: which page and what it shows/explains' if kind == 'video' else 'the 2-4 points the post makes'}"]}}"""
+    data = llm.complete_json(prompt, SYSTEM, max_tokens=1800)
+    known = {explorer._norm(p["url"]): p["url"] for p in k["pages"]}
+    urls = [known[explorer._norm(u)] for u in data.get("page_urls") or []
+            if isinstance(u, str) and explorer._norm(u) in known]
+    if not urls:  # fall back to the most important pages
+        urls = [p["url"] for p in sorted(k["pages"], key=lambda p: -p["importance"])][:4 if kind == "video" else 1]
+    chosen = [explorer.page_for(k, u) for u in urls]
+    facts = "\n\n".join(
+        f"PAGE {p['name']} ({p['url']}): {p['purpose']}\nFeatures: {'; '.join(p['features'])}\n"
+        f"How it works: {' -> '.join(p['workflow'])}\nBenefits: {'; '.join(p['benefits'])}\n"
+        f"Numbers: {'; '.join(p['numbers'])}\nText: {p['text'][:900]}" for p in chosen if p)
+    overview = (k.get("overview") or {}).get("what", "")
+    return {"source": "url", "topic": data.get("topic", "")[:300], "angle": data.get("angle", ""),
+            "hook": data.get("hook", ""), "trend_used": "", "page_urls": urls,
+            "story": [str(x)[:200] for x in data.get("story") or []][:10],
+            "product": {"name": company().get("name", ""), "url": urls[0], "description": overview or company().get("tagline", "")},
+            "context": f"User's focus: {notes}" if notes else "",
+            "site_summary": (f"ABOUT: {overview}\n\n" if overview else "") + facts}

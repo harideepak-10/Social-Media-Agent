@@ -146,6 +146,14 @@ python cli.py from-url https://anywebsite.com --notes "explain the booking featu
 You can also use the **🎬 Create from any website** box in the dashboard, or call `POST /api/from-url` with `{"url": "...", "kind": "video", "notes": ""}`.
 
 What the agent does with the link:
+- **Explores the whole site** (not just the front page): sitemap, top menu, footer and links – up to 40 pages
+  (25 for JavaScript apps). Login, legal, cart pages and single blog posts are skipped. The AI sorts every page
+  (product, feature, how it works, pricing, case study …) and notes its features, workflow steps, benefits and real
+  numbers. This is remembered for a week, so the next post/video about the same site starts straight away.
+- **Wakes sleeping sites**: free hosts (Render, Railway …) show a "waking up" page first – the agent waits and
+  retries for up to ~2.5 minutes, and tells you clearly if the site never answers.
+- **Local addresses** (`localhost:3000`, `192.168.x.x`, `*.local`): only your PC can open them, so these jobs –
+  posts too – go to your PC (`run_video_worker.bat` must be running and the site started).
 - **Reads the site.** It handles plain websites and JavaScript apps (React, Vue, Angular), finds the main pages and skips login, privacy and cart pages.
 - **Detects the brand.** It works out the name, tagline, audience and tone, and takes the brand colours from the site's header and buttons. The cards and captions use that brand, not yours.
 - **Builds the content.** It picks the 2–4 pages that best show the product, then writes, captures, voices and subtitles the video.

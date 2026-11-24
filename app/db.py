@@ -202,6 +202,16 @@ class StoredFile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SiteKnowledge(Base):
+    """What the site explorer learned about a website ("Create from URL"): every useful page with notes.
+    Kept in the database so the server and the PC worker share it and it survives restarts."""
+    __tablename__ = "site_knowledge"
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)        # hash of the start URL
+    start_url: Mapped[str] = mapped_column(String(500), default="")
+    data: Mapped[str] = mapped_column(Text, default="")                    # JSON
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 _initialized = False
 
 

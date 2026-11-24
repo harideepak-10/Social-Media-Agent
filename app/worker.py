@@ -96,7 +96,7 @@ def claim() -> ContentItem | None:
 
 def run_one(item: ContentItem) -> None:
     import threading
-    log.info("making video #%s on this PC", item.id)
+    log.info("making %s #%s on this PC", item.kind, item.id)
     done = threading.Event()
 
     def beat():  # keep showing "online" on the website during a long render

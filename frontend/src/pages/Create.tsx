@@ -25,7 +25,9 @@ export default function Create() {
   const [touched, setTouched] = useState(false);
 
   const cleaned = url.trim();
-  const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
+  const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(:\d+)?(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
+  // only this PC can open these – the job goes to the PC worker (run_video_worker.bat)
+  const local = /^(https?:\/\/)?(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|[\w-]+\.(local|lan)(?=[:/]|$))/i.test(cleaned);
 
   const recent = useQuery({ queryKey: ["items", "recent-url"], queryFn: () => api.items({ q: "", limit: 60 }), refetchInterval: 10000 });
   const fromLinks = (recent.data?.items ?? []).filter((i) => i.source_url).slice(0, 6);
@@ -44,7 +46,7 @@ export default function Create() {
   return (
     <div className="mx-auto max-w-6xl px-5 py-8 md:px-10">
       <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Create from any website</h1>
-      <p className="mt-1 text-sm text-stone-500">Paste a link. The agent reads the site, takes its brand colours and best screens, and makes a video or post for it.</p>
+      <p className="mt-1 text-sm text-stone-500">Paste a link. The agent explores the whole site – every main page, how it works and its benefits – takes its design and best screens, and makes a video or post for it.</p>
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card className="p-4 sm:p-6 md:p-8">
@@ -59,7 +61,12 @@ export default function Create() {
                   className="w-full bg-transparent text-base outline-none placeholder:text-stone-400" />
               </div>
               {touched && cleaned && !valid && <p className="mt-1.5 text-xs text-red-600">That doesn't look like a website link.</p>}
-              <p className="mt-1.5 text-xs text-stone-400">Tip: link straight to a product page for the best screens. Sites that need a login: run <code className="rounded bg-stone-100 px-1">python cli.py login --url …</code> once.</p>
+              {valid && local && (
+                <p className="mt-1.5 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800 ring-1 ring-indigo-200">
+                  <b>Local address</b> – only your PC can open it, so your PC makes this one. Keep <code>run_video_worker.bat</code> running and the site started.
+                </p>
+              )}
+              <p className="mt-1.5 text-xs text-stone-400">Paste the home page – the agent finds the other pages itself. Free-hosted sites (e.g. Render) that are asleep are woken up automatically. Sites that need a login: run <code className="rounded bg-stone-100 px-1">python cli.py login --url …</code> once.</p>
             </div>
 
             <div>

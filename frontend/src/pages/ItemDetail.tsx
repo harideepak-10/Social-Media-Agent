@@ -226,13 +226,15 @@ export default function ItemDetail() {
         <Card className="mt-8 p-8 md:p-12">
           <div className="mx-auto max-w-xl text-center">
             <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand-50"><Loader2 className="size-7 animate-spin text-brand-600" /></div>
-            <h2 className="mt-5 text-xl font-bold">{queued ? "Waiting for your PC to make this video" : `The agent is creating your ${item.kind}`}</h2>
+            <h2 className="mt-5 text-xl font-bold">{queued ? `Waiting for your PC to make this ${item.kind}` : `The agent is creating your ${item.kind}`}</h2>
             <p className="mt-1 text-sm text-stone-500">
               {queued
-                ? "Videos are made on your PC because this server is too small for them. Start run_video_worker.bat on your PC – it picks this up within a minute."
+                ? (item.stage.includes("only reachable")
+                  ? "This website runs on your PC (a local address), so only your PC can open it. Start the site and run_video_worker.bat on your PC – it picks this up within a minute."
+                  : "Videos are made on your PC because this server is too small for them. Start run_video_worker.bat on your PC – it picks this up within a minute.")
                 : item.kind === "video" ? "Videos take about 4–8 minutes (16:9 and 9:16 versions)." : "Posts take about a minute."} You can leave this page – it keeps working.
             </p>
-            {pc?.mode === "pc" && item.kind === "video" && (
+            {pc?.mode === "pc" && (item.kind === "video" || queued) && (
               <div className={clsx("mx-auto mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ring-1",
                 pc.online ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200")}>
                 <span className={clsx("size-1.5 rounded-full", pc.online ? "bg-emerald-500" : "bg-amber-500")} />

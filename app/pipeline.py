@@ -61,14 +61,16 @@ def worker_name() -> str:
 
 
 QUEUED_STAGE = "Waiting for your PC to make this video"
+QUEUED_STAGE_LOCAL = "Waiting for your PC – this website is only reachable from your PC"
 
 
-def _queue_for_pc(item_id: int) -> ContentItem:
+def _queue_for_pc(item_id: int, local: bool = False) -> ContentItem:
     with get_session() as s:
         item = s.get(ContentItem, item_id)
-        item.status, item.stage, item.progress, item.error, item.worker = "queued", QUEUED_STAGE, 0, "", ""
+        stage = QUEUED_STAGE_LOCAL if local else (QUEUED_STAGE if item.kind == "video" else "Waiting for your PC")
+        item.status, item.stage, item.progress, item.error, item.worker = "queued", stage, 0, "", ""
         s.commit()
-        log.info("video #%s queued for the PC worker", item_id)
+        log.info("%s #%s queued for the PC worker%s", item.kind, item_id, " (local website)" if local else "")
         return item
 
 
@@ -273,9 +275,12 @@ def _normalize_url(url: str) -> str:
     """Add a scheme if missing (try https first, then http)."""
     import httpx
 
+    from .research import explorer
     url = url.strip()
     if url.startswith(("http://", "https://")):
         return url
+    if explorer.is_local(url):  # localhost:3000, 192.168.1.20:8000 … – plain http, and this server can't check it
+        return "http://" + url
     for scheme in ("https://", "http://"):
         try:
             httpx.head(scheme + url, timeout=10, follow_redirects=True)
@@ -312,17 +317,22 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
         item.worker = worker_name()
         s.commit()
         item_id = item.id
-    if kind == "video" and video_on_pc() and not on_worker:
-        return _queue_for_pc(item_id)
+    from .research import explorer
+    local = explorer.is_local(url)
+    if not on_worker and video_on_pc() and (kind == "video" or local):
+        # videos are made on the PC; so is anything about a localhost/LAN website (only the PC can open it)
+        return _queue_for_pc(item_id, local=local)
 
     progress.bind(item_id)
     progress.report("Waiting for the previous job to finish…", 1)
     with _lock:
         try:
-            progress.report("Reading the website and its brand", 3)
-            brand = planner.brand_for_url(url)
+            progress.report("Opening the website", 2)
+            knowledge = explorer.explore(url)          # wakes sleeping hosts, reads every useful page
+            progress.report(f"Read {len(knowledge['pages'])} pages – working out the brand", 8)
+            brand = planner.brand_for_url(knowledge.get("start") or url, knowledge=knowledge)
             with use_brand(brand):
-                plan = planner.plan_for_url(url, kind, day, notes)
+                plan = planner.plan_for_url(url, kind, day, notes, knowledge=knowledge)
                 progress.report(f"Planned: {plan['topic']}", 8)
                 gen = engine.create(plan, day, item_id, kind, own=False)
                 qa = _quality(kind, gen, plan["topic"], item_id)
