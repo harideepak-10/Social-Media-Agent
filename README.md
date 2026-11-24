@@ -150,8 +150,11 @@ Video options on that page:
   close-ups and an animated "how it works" scene), or *Series* (one short Reel per main page, dated one per day, up to 5).
 - **Show me the outline first** (on by default): the agent stops after writing the scenes. On the item page you can
   reorder, remove and rename scenes, edit the voice-over and pick the voice, then press **Make video**.
-- **Your screenshots** (optional, up to 8, drag & drop or Ctrl+V): screens the agent can't reach itself, such as inside
-  your app after login. Each one becomes a scene with your caption; for a post, it is used as the screen in the design.
+- **Your screenshots or screen recordings** (optional, drag & drop or Ctrl+V): screens the agent can't reach itself, such
+  as inside your app after login. Each screenshot becomes a scene with your caption; for a post, it is used as the screen
+  in the design. Screen recordings (up to 3, MP4/MOV/WebM, max 3 min / 200 MB, e.g. Win+Alt+R) are for videos: the PC
+  finds the moments where the screen changes and cuts them into ~6 s silent clips that play inside the browser window.
+  Uploads are removed from storage when the item is deleted from the bin.
 
 What the agent does with the link:
 - **Explores the whole site** (not just the front page): sitemap, top menu, footer and links – up to 40 pages

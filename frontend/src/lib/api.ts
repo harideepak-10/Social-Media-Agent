@@ -89,7 +89,7 @@ export interface SceneTexts {
   eyebrow?: string; headline?: string; accent?: string; sub?: string; voice?: string; cta?: string; url?: string;
   greeting?: string; name?: string; quote?: string;
   bullets?: { icon: string; text: string }[]; badges?: { value: string; label: string }[]; screen?: string;
-  type?: "feature" | "tour" | "workflow"; page_name?: string; screen_tall?: boolean;
+  type?: "feature" | "tour" | "workflow" | "clip"; page_name?: string; screen_tall?: boolean; clip?: string; clip_s?: number;
   steps?: { icon: string; title: string; desc: string }[];
 }
 export interface Storyboard {
@@ -238,6 +238,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Screen recordings can be 200 MB: XHR so the page can show upload progress. */
+function uploadRecording(file: File, onProgress?: (pct: number) => void): Promise<{ ref: string; url: string; seconds: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/uploads/recording");
+    if (auth.token) xhr.setRequestHeader("Authorization", `Bearer ${auth.token}`);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      let body: { detail?: unknown } & Record<string, unknown> = {};
+      try { body = JSON.parse(xhr.responseText); } catch { /* not json */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as unknown as { ref: string; url: string; seconds: number });
+      else reject(new ApiError(xhr.status, typeof body.detail === "string" ? body.detail
+        : xhr.status === 413 ? "The file is too big for the server – trim the recording" : `Upload failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Upload failed – check your connection"));
+    const f = new FormData(); f.append("file", file); xhr.send(f);
+  });
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ token: string; user: string }>("/api/login", { method: "POST", body: JSON.stringify({ username, password }) }),
@@ -271,6 +290,7 @@ export const api = {
     request<ItemDetail>(`/api/items/${id}/storyboard`, { method: "PUT", body: JSON.stringify({ edits, voice_name }) }),
   saveOutline: (id: number, edits: Record<string, unknown>, voice_name: string, render: boolean) =>
     request<ItemDetail>(`/api/items/${id}/storyboard`, { method: "PUT", body: JSON.stringify({ edits, voice_name, render }) }),
+  uploadRecording,
   uploadScreenshot: (file: File) => {
     const f = new FormData(); f.append("file", file);
     return request<{ ref: string; url: string; w: number; h: number }>("/api/uploads/screenshot", { method: "POST", body: f });

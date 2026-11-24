@@ -131,7 +131,7 @@ def contact_sheet(blocks: list[dict], out: Path, thumb_w: int = 460) -> Path:
     f = graphics.font(28, True)
     for i, (bid, im) in enumerate(thumbs):
         x, y = (i % cols) * cell_w + 10, (i // cols) * cell_h + 10
-        d.text((x, y), f"B{bid}", font=f, fill=(220, 38, 38))
+        d.text((x, y), bid if isinstance(bid, str) else f"B{bid}", font=f, fill=(220, 38, 38))  # U0 / R0c1 = the user's
         sheet.paste(im, (x, y + 38))
     sheet.save(out, quality=88)
     return out

@@ -28,6 +28,7 @@ export default function Create() {
   const [outline, setOutline] = useState(true);
   const [shots, setShots] = useState<Shot[]>([]);
   const uploading = shots.some((s) => !s.ref);
+  const recInPost = kind === "post" && shots.some((s) => s.video);
 
   const cleaned = url.trim();
   const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(:\d+)?(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
@@ -124,13 +125,14 @@ export default function Create() {
             )}
 
             <div>
-              <label className="text-sm font-bold">Your screenshots <span className="font-normal text-stone-400">(optional)</span></label>
+              <label className="text-sm font-bold">{kind === "video" ? "Your screenshots or screen recordings" : "Your screenshots"} <span className="font-normal text-stone-400">(optional)</span></label>
               <p className="mt-0.5 text-xs text-stone-500">
                 {kind === "video"
-                  ? "Add screens the agent can't reach itself – e.g. inside your app after login. Each one becomes a scene, with your caption."
+                  ? "Add screens the agent can't reach itself – e.g. inside your app after login. A screenshot becomes a scene with your caption; from a screen recording (Win+Alt+R) the agent cuts the best moments into clips that play in the video."
                   : "Add a screen of your product – the post shows it instead of a captured one."}
               </p>
-              <ScreenshotDrop shots={shots} onChange={setShots} max={kind === "video" ? 8 : 2} />
+              <ScreenshotDrop shots={shots} onChange={setShots} max={kind === "video" ? 10 : 2} allowVideo={kind === "video"} />
+              {recInPost && <p className="mt-1.5 text-xs text-red-600">Screen recordings are for videos – remove them, or switch to Walkthrough video.</p>}
             </div>
 
             <div>
@@ -147,8 +149,8 @@ export default function Create() {
             </div>
 
             <Button type="submit" variant="primary" className="w-full py-3 text-base" loading={create.isPending}
-              icon={<Wand2 className="size-5" />} disabled={!cleaned || uploading}>
-              {uploading ? "Uploading screenshots…" : kind === "post" ? "Create post"
+              icon={<Wand2 className="size-5" />} disabled={!cleaned || uploading || recInPost}>
+              {uploading ? "Uploading…" : kind === "post" ? "Create post"
                 : length === "series" ? "Create series" : outline ? "Create outline" : "Create video"}
             </Button>
           </form>

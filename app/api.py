@@ -469,10 +469,11 @@ class FromUrlIn(BaseModel):
     notes: str = ""
     length: str = "short"          # video: short | full | series
     outline: bool = True           # video: show the scene outline first, render after "Make video"
-    screenshots: list[ShotIn] = Field(default_factory=list, max_length=8)
+    screenshots: list[ShotIn] = Field(default_factory=list, max_length=10)   # images and screen recordings
 
 
-UPLOAD_KEY = re.compile(r"uploads/shots/[0-9a-f]{32}\.(png|jpg)$")
+UPLOAD_KEY = re.compile(r"uploads/(shots/[0-9a-f]{32}\.(png|jpg)|recordings/[0-9a-f]{32}\.(mp4|mov|webm|mkv))$")
+REC_MAX_MB, REC_MAX_S = 200, 180
 
 
 @router.post("/uploads/screenshot")
@@ -508,6 +509,42 @@ async def upload_screenshot(file: UploadFile = File(...), _: str = User):
     return {"ref": ref, "url": storage.web_url(ref), "w": img.width, "h": img.height}
 
 
+@router.post("/uploads/recording")
+async def upload_recording(file: UploadFile = File(...), _: str = User):
+    """A screen recording for Create from URL – the PC cuts the best moments into moving clips. Returns {ref, url, seconds}."""
+    import uuid
+    from . import storage
+    from .generators import ffmpeg
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in (".mp4", ".mov", ".webm", ".mkv"):
+        raise HTTPException(400, "Upload an MP4, MOV, WebM or MKV screen recording")
+    tmp = storage.WORK_DIR / "uploads"
+    tmp.mkdir(parents=True, exist_ok=True)
+    name = uuid.uuid4().hex + ext
+    dest, size = tmp / name, 0
+    try:
+        with open(dest, "wb") as out:  # streamed to disk – never the whole file in memory
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > REC_MAX_MB << 20:
+                    raise HTTPException(400, f"Recordings must be under {REC_MAX_MB} MB – trim it or record a smaller window")
+                out.write(chunk)
+        try:
+            secs = ffmpeg.duration(dest)
+        except Exception:
+            raise HTTPException(400, "That file isn't a video this agent can read")
+        if secs > REC_MAX_S + 5:
+            raise HTTPException(400, f"Recordings can be up to {REC_MAX_S // 60} minutes – this one is {int(secs // 60)}:{int(secs % 60):02d}")
+        if secs < 2:
+            raise HTTPException(400, "That recording is too short")
+        ref = storage.save_file(dest, f"uploads/recordings/{name}")
+        if storage.is_url(ref):  # it's in the cloud now – don't keep a 200 MB copy on this small server
+            (storage.MEDIA_DIR / f"uploads/recordings/{name}").unlink(missing_ok=True)
+    finally:
+        dest.unlink(missing_ok=True)
+    return {"ref": ref, "url": storage.web_url(ref), "seconds": round(secs, 1)}
+
+
 @router.post("/from-url")
 def from_url(body: FromUrlIn, _: str = User):
     if body.kind not in ("video", "post"):
@@ -523,7 +560,12 @@ def from_url(body: FromUrlIn, _: str = User):
             raise HTTPException(400, "Unknown screenshot – upload it again")
         from . import storage
         ref = storage.remote_url(m.group(0)) if storage.remote_enabled() else str(MEDIA_DIR / m.group(0))
-        shots.append({"ref": ref, "caption": sh.caption.strip()})
+        shots.append({"ref": ref, "caption": sh.caption.strip(),
+                      **({"video": True} if m.group(0).startswith("uploads/recordings/") else {})})
+    if sum(1 for s in shots if s.get("video")) > 3:
+        raise HTTPException(400, "Up to 3 screen recordings")
+    if body.kind == "post" and any(s.get("video") for s in shots):
+        raise HTTPException(400, "Screen recordings are for videos – for a post, add a screenshot")
     options = {"screenshots": shots} if shots else {}
     if body.kind == "video":
         options.update(length=body.length, outline=body.outline)

@@ -121,10 +121,11 @@ def _source_dir(item: ContentItem, work: Path) -> Path:
         raise EditError("This video was made before scene editing was available – use Regenerate instead")
     (work / "storyboard.json").write_text(text, encoding="utf-8")
     for sc in json.loads(text).get("scenes") or []:
-        f = (sc.get("_block") or {}).get("file")
-        if f and not (work / f).exists():
-            local = storage.local_file(storage.media_ref_for(f"{prefix}/{f}", like=like))
-            shutil.copy(local, work / f)
+        b = sc.get("_block") or {}
+        for f in (b.get("file"), b.get("clip_file")):
+            if f and not (work / f).exists():
+                local = storage.local_file(storage.media_ref_for(f"{prefix}/{f}", like=like))
+                shutil.copy(local, work / f)
     return work
 
 
@@ -137,15 +138,19 @@ def storyboard(item_id: int) -> dict:
         work = storage.WORK_DIR / f"sb_{item_id}"
         try:
             board, theme, product = video_studio.load_source(_source_dir(item, work))
+            board["_seconds"] = video_studio.estimate_seconds(board)
             prefix, like = source_loc(item)
             for sc in board.get("scenes") or []:
                 b = sc.pop("_block", None) or {}
                 f = b.get("file")
                 sc["screen"] = storage.web_url(storage.media_ref_for(f"{prefix}/{f}", like=like)) if f else ""
+                cf = b.get("clip_file")
+                sc["clip"] = storage.web_url(storage.media_ref_for(f"{prefix}/{cf}", like=like)) if cf else ""
+                if cf:
+                    sc["clip_s"] = b.get("clip_s") or 6.5
                 sc["screen_tall"] = bool(b.get("h", 0) > 2 * max(1, b.get("w", 1)))
                 sc.setdefault("type", "feature")
             board["voice_name"] = board.get("voice_name") or (settings().get("video") or {}).get("voice", "")
-            board["_seconds"] = video_studio.estimate_seconds(board)
             return {"board": board, "theme": theme, "product": product}
         finally:
             shutil.rmtree(work, ignore_errors=True)

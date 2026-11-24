@@ -188,8 +188,8 @@ def upload(local: Path, key: str) -> str:
     _ensure_bucket()
     base, bucket, h = _sb()
     ctype = _mt.guess_type(local.name)[0] or "application/octet-stream"
-    with open(local, "rb") as f:
-        r = _httpx.post(f"{base}/storage/v1/object/{bucket}/{key}", content=f.read(), timeout=600,
+    with open(local, "rb") as f:  # streamed from disk (screen recordings can be 200 MB)
+        r = _httpx.post(f"{base}/storage/v1/object/{bucket}/{key}", content=f, timeout=900,
                         headers={**h, "Content-Type": ctype, "x-upsert": "true", "cache-control": "3600"})
     if r.status_code >= 400:
         raise RuntimeError(f"Supabase upload failed for {key}: {r.status_code} {r.text[:300]}")

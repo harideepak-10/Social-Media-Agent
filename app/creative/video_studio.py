@@ -26,7 +26,7 @@ from .. import llm, progress
 from .. import storage
 from ..config import ASSETS_DIR, company, settings
 from ..generators import browser, ffmpeg, tts
-from . import assets, brandfix, festive, icons, rotation, visuals
+from . import assets, brandfix, festive, icons, recording, rotation, visuals
 from .catalog import ICONS, VIDEO_THEMES
 
 log = logging.getLogger(__name__)
@@ -99,6 +99,7 @@ Return JSON: {{"title": "…", "intro": {{…}}, "scenes": [{{…}}], "grid": {{
 
 
 # ── walkthrough storyboard ("Create from URL": every chosen page, how it works, benefits) ─────────
+CLIP_START = 1.1   # a recording clip starts playing once its window has slid in
 LENGTHS = {"short": {"max_s": 60, "scenes": "3-5", "label": "short highlight (max 60 s, for Reels/LinkedIn)"},
            "full": {"max_s": 240, "scenes": "8-16", "label": "full walkthrough (2-4 minutes)"}}
 WALK_SYSTEM = SYSTEM + """
@@ -127,7 +128,17 @@ def capture_pages(plan: dict, work: Path, uploads: list[dict] | None = None, max
         out["pages"].append({"id": f"P{i}", "url": u, "name": names.get(u) or cap["title"] or u, "full": cap["full"],
                              "text": cap["text"][:1500]})
         out["text"] += f"\n[P{i}] {u}: {cap['text'][:1200]}"
-    for j, up in enumerate(uploads or []):  # user's screenshots (e.g. inside the app, behind a login)
+    imgs = [u for u in uploads or [] if not (u.get("video") or recording.is_video(u["path"]))]
+    recs = [u for u in uploads or [] if u not in imgs]
+    for j, up in enumerate(recs):  # screen recordings -> the busiest moments as moving clips
+        progress.report(f"Finding the best moments in your screen recording {j + 1}", 22)
+        progress.check()
+        try:
+            out["blocks"] += recording.clips(Path(up["path"]), up.get("caption", ""), j, work / f"rec{j}",
+                                             max_clips=6 if len(recs) == 1 else 4)
+        except Exception as e:
+            log.warning("screen recording %s skipped: %s", up["path"], e)
+    for j, up in enumerate(imgs):  # user's screenshots (e.g. inside the app, behind a login)
         p = Path(up["path"])
         if not p.is_file():
             continue
@@ -145,16 +156,15 @@ def walkthrough_storyboard(plan: dict, product: dict | None, cap: dict, work: Pa
                            length: str = "short") -> dict:
     L = LENGTHS.get(length, LENGTHS["short"])
     blocks = cap["blocks"]
-    sheet_blocks = [dict(b, id=b["id"]) for b in blocks][:24]
-    sheet = None
-    if sheet_blocks:
-        sheet = visuals.contact_sheet([dict(b, id=(b["id"] if str(b["id"]).startswith("U") else b["id"])) for b in sheet_blocks],
-                                      work / "sheet.jpg")
+    # the user's own material first (recordings, screenshots), so it always makes the contact sheet
+    sheet_blocks = sorted(blocks, key=lambda b: 0 if b.get("user") else 1)[:24]
+    sheet = visuals.contact_sheet(sheet_blocks, work / "sheet.jpg") if sheet_blocks else None
     c = company()
     def bid(b):
-        return b["id"] if str(b["id"]).startswith("U") else f"B{b['id']}"
-    block_lines = "\n".join(f"{bid(b)} [{b.get('page') or 'your screenshot'}] ({b['w']}x{b['h']}): {b['text'][:220]}"
-                             for b in blocks)
+        return b["id"] if isinstance(b["id"], str) else f"B{b['id']}"
+    block_lines = "\n".join(f"{bid(b)} [{b.get('page') or ('your screen recording' if b.get('clip_path') else 'your screenshot')}] "
+                             f"({b['w']}x{b['h']}): {b['text'][:220]}" for b in sheet_blocks)
+    has_rec = any(b.get("clip_path") for b in blocks)
     page_lines = "\n".join(f"{p['id']}: {p['name']} – {p['url']}" for p in cap["pages"] if p.get("full"))
     story = "\n".join(f"- {s}" for s in plan.get("story") or [])
     prompt = f"""BRAND: {c.get('name')} — {c.get('tagline')} | {c.get('website')}
@@ -170,8 +180,8 @@ WHAT EACH PAGE SAYS (site explorer notes – use these facts; never invent featu
 PAGES (each can be shown as a scrolling page tour):
 {page_lines or '(none)'}
 
-SCREEN CLIPS (see the contact sheet; B… = captured from a page, U… = the user's own screenshots – use those, they
-usually show the real app):
+SCREEN CLIPS (see the contact sheet; B… = captured from a page, U… = the user's own screenshots, R…c… = MOVING clips
+cut from the user's screen recording – they show the real app being used; use the user's material, it is the best proof):
 {block_lines or '(none)'}
 
 ALREADY USED RECENTLY (do not repeat): {rotation.recent_creative_memory()}
@@ -182,10 +192,12 @@ Write the storyboard of a product walkthrough with {L['scenes']} scenes, in cust
   "bullets":[3 x {{"icon","text"}}]}} – use it to introduce a page.
 - "feature": one screen clip with callouts. {{"type":"feature","block":"B103" or "U0","eyebrow","headline","accent",
   "bullets":[3 x {{"icon","text"}}],"badges":[0-2 {{"value": exact number/text visible in that clip,"label"}}]}}
+  With an R…c… block the clip PLAYS: write the text about the action it shows.
 - "workflow": how it works, as numbered steps that animate one by one. {{"type":"workflow","eyebrow","headline","accent",
   "steps":[3-6 {{"icon","title" (2-4 words),"desc" (max 9 words)}}]}} – use the real workflow steps from the notes.
 Every scene also gets "page_name" (which page it is about){', and a "voice" line: natural spoken English, 1-2 sentences (max 28 words), adding to the on-screen text' if voice else ''}.
 {'Include at least one workflow scene and show every planned page.' if length == 'full' else 'Keep only the strongest moments; at most one tour.'}
+{'Use 2-4 of the R… recording clips (different moments, in their order).' if has_rec else ''}
 Icons: one of {ICONS}. Headlines 3-7 words, last part is the accent. Bullets max 8 words.
 Also: intro {{eyebrow, headline, accent, sub (max 16 words), chips (3-5){', voice' if voice else ''}}},
 {'grid {eyebrow, headline, accent, items: 6 or 9 {icon, title, desc}' + (', voice' if voice else '') + '}, ' if length == 'full' else ''}outro {{headline, accent, cta, url{', voice' if voice else ''}}},
@@ -223,6 +235,9 @@ Return JSON: {{"title": "…", "intro": {{…}}, "scenes": [{{…}}], {'"grid": 
             sc["badges"] = [bd for bd in (sc.get("badges") or [])[:2]
                             if re.sub(r"\s+", "", str(bd.get("value", ""))) and re.sub(r"\s+", "", str(bd["value"])) in flat]
             sc["_block"] = b
+            if b.get("clip_path"):
+                t = "clip"
+                sc["badges"] = []
         sc["type"] = t
         sc.setdefault("bullets", [])
         scenes.append(sc)
@@ -380,6 +395,12 @@ def scene_feature(d, theme, size, dur, logo, idx, title):
     pan = -(img_h - vp_h) if img_h > vp_h else 0
     if d.get("type") == "tour":  # scroll through the top of the page (about 3 screens), not a blur of the whole thing
         pan = max(pan, -int(vp_h * 3.2))
+    clip = d.get("_clip")
+    first = f"{clip['dir']}/f0001.jpg" if clip else Path(b["path"]).name
+    if clip:  # a recording plays: no pan, the frame is swapped each video frame (window.__clip, awaited by the renderer)
+        pan = 0
+        img_h = round(win_w * b["h"] / max(1, b["w"]))
+        vp_h = min(img_h, max_vp)
     if not vert:  # vertically centre the window
         win_y = max(120, (h - vp_h - 46) // 2 + 10)
     badges = ""
@@ -391,6 +412,10 @@ def scene_feature(d, theme, size, dur, logo, idx, title):
         badges += (f'<div class="badge" style="{x};{y};animation-delay:{start:.2f}s"><b data-count data-start="{start:.2f}">'
                    f'{_e(bd.get("value"))}</b><small>{_e(bd.get("label"))}</small></div>')
     anim = "slideInL" if flip else ("rise" if vert else "slideIn")
+    clip_js = (f"""<script>(()=>{{const im=document.getElementById('clip');let cur=1;
+window.__clip=t=>{{const i=Math.min({clip['n']},Math.max(1,1+Math.floor((t-{CLIP_START})*{clip['fps']})));
+if(i===cur)return null;cur=i;im.src='{clip['dir']}/f'+String(i).padStart(4,'0')+'.jpg';return im.decode().catch(()=>null)}};}})()</script>"""
+               if clip else "")
     body = f"""<div style="{text_css}">
  <div class="eyebrow a" style="animation-delay:.3s">{_e(d.get('eyebrow'))}</div>
  <h1 class="a" style="font-size:{hfs}px;animation-delay:.5s">{_headline(d)}</h1>
@@ -400,10 +425,10 @@ def scene_feature(d, theme, size, dur, logo, idx, title):
  <div style="position:absolute;inset:-60px;background:radial-gradient(closest-side,{theme['accent']}26,transparent);filter:blur(20px);animation:glow 3s ease-in-out infinite alternate"></div>
  <div class="win" style="position:relative;left:0;top:0;width:{win_w}px">
   <div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i><span>{_e(title)}</span></div>
-  <div class="vp" style="height:{vp_h}px;--pan:{pan}px"><img src="{Path(b['path']).name}"></div>
+  <div class="vp" style="height:{vp_h}px;--pan:{pan}px"><img {'id="clip" style="animation:none"' if clip else ''} src="{first}"></div>
  </div>
  {badges}
-</div>"""
+</div>{clip_js}"""
     return _doc(theme, size, dur, body, logo)
 
 
@@ -524,7 +549,7 @@ def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out:
                 page.wait_for_timeout(300)
                 page.evaluate("document.getAnimations().forEach(a => a.pause())")
                 # when every animation has finished the picture no longer changes: reuse the last frame
-                settle = page.evaluate("""() => window.__render ? 1e9 : Math.max(0, ...document.getAnimations().map(a => {
+                settle = page.evaluate("""() => (window.__render || window.__clip) ? 1e9 : Math.max(0, ...document.getAnimations().map(a => {
                     const e = a.effect && a.effect.getComputedTiming().endTime;
                     return (e === Infinity || e == null) ? 1e9 : e; })) / 1000""")
                 last = None
@@ -532,7 +557,7 @@ def _render_frames(scenes: list[tuple[Path, float]], size: tuple[int, int], out:
                     t = i / rfps
                     if last is None or t <= settle + 1 / rfps:
                         page.evaluate("t => { document.getAnimations().forEach(a => { try { a.currentTime = t * 1000 } catch (e) {} });"
-                                      " window.__render && window.__render(t); }", t)
+                                      " window.__render && window.__render(t); return window.__clip ? window.__clip(t) : null; }", t)
                         last = page.screenshot(type="jpeg", quality=88)
                     proc.stdin.write(last)
                     done += 1
@@ -594,10 +619,15 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         shutil.copy(logo[theme["logo"]], work / "logo.png")
         shutil.copy(logo["light"], work / "logo_light.png")  # festive opening is always a night scene
         logo_file = "logo.png"
-    for sc in board["scenes"]:
+    for k, sc in enumerate(board["scenes"]):
         b = sc.get("_block")
         if b and b.get("path") and Path(b["path"]).resolve() != (work / Path(b["path"]).name).resolve():
             shutil.copy(b["path"], work / Path(b["path"]).name)
+        sc.pop("_clip", None)
+        if b and b.get("clip_path") and Path(b["clip_path"]).exists():  # frames for the playing clip
+            n = recording.frames(Path(b["clip_path"]), work / f"clipf{k}")
+            if n:
+                sc["_clip"] = {"dir": f"clipf{k}", "n": n, "fps": recording.FPS}
 
     # 1) voice-over and timing
     progress.report("Recording the voice-over" if voice else "Timing the scenes", 35)
@@ -613,9 +643,12 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         if voice and d.get("voice"):
             vpath, vsec = tts.speak(d["voice"], work / f"vo_{i}", voice=voice_name or board.get("voice_name") or None)
         stype = d.get("type", "feature") if kind == "scene" else ""
+        clip_s = (d.get("_clip") or {}).get("n", 0) / recording.FPS
         b = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(d.get("steps") or [])}.get(stype, base[kind])
+        if clip_s:
+            b = max(b, CLIP_START + clip_s + 0.6)   # the whole clip plays
         dur = max(b, vsec + 1.2) if vpath else b
-        dur = min(dur, 16.0 if stype in ("tour", "workflow") else 12.0)
+        dur = min(dur, 16.0 if stype in ("tour", "workflow", "clip") else 12.0)
         timeline.append((kind, d, vpath, t0, dur))
         t0 += dur
     total = t0
@@ -733,7 +766,8 @@ def estimate_seconds(board: dict) -> float:
     t += 4.6 + 5.0 + (6.0 if (board.get("grid") or {}).get("items") else 0)
     for sc in board.get("scenes") or []:
         words = len(str(sc.get("voice") or "").split())
-        base = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(sc.get("steps") or [])}.get(sc.get("type"), 6.4)
+        base = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(sc.get("steps") or []),
+                "clip": CLIP_START + float((sc.get("_block") or {}).get("clip_s") or 6.5) + 0.6}.get(sc.get("type"), 6.4)
         t += min(max(base, words / 2.6 + 1.2), 16.0)
     return round(t)
 
@@ -778,7 +812,10 @@ def save_source(board: dict, theme_name: str, product_name: str, dest: Path) -> 
         if b and Path(b["path"]).exists():
             name = f"screen_{i}{Path(b['path']).suffix or '.png'}"
             shutil.copy(b["path"], dest / name)
-            item["_block"] = {**{k: v for k, v in b.items() if k != "path"}, "file": name}
+            item["_block"] = {**{k: v for k, v in b.items() if k not in ("path", "clip_path")}, "file": name}
+            if b.get("clip_path") and Path(b["clip_path"]).exists():  # a moving clip from the user's recording
+                shutil.copy(b["clip_path"], dest / f"clip_{i}.mp4")
+                item["_block"]["clip_file"] = f"clip_{i}.mp4"
         out["scenes"].append(item)
     out["_theme"], out["_product"] = theme_name, product_name
     (dest / "storyboard.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -791,6 +828,8 @@ def load_source(src: Path) -> tuple[dict, str, str]:
         b = sc.get("_block")
         if b and b.get("file"):
             b["path"] = str(src / b["file"])
+        if b and b.get("clip_file"):
+            b["clip_path"] = str(src / b["clip_file"])
     return board, board.pop("_theme", ""), board.pop("_product", "")
 
 

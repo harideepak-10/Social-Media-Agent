@@ -226,6 +226,8 @@ def delete_files(item: ContentItem) -> None:
         storage.delete_media(ref)
     if item.kind == "video" and item.media_path:  # the editable storyboard + screens kept for video edits
         storage.delete_video_source(item.media_path)
+    for sh in item.options.get("screenshots") or []:  # the user's uploads (recordings can be big)
+        storage.delete_media(sh.get("ref"))
     ref = item.options.get("outline_ref") if item.kind == "video" else ""
     if ref:  # an outline that was never made into a video
         storage.delete_video_source(ref, prefix=storage.outline_prefix(item.id))
@@ -381,7 +383,8 @@ def _uploads(opts: dict) -> list[dict]:
     out = []
     for sh in (opts.get("screenshots") or [])[:8]:
         try:
-            out.append({"path": str(storage.local_file(sh["ref"])), "caption": str(sh.get("caption", ""))[:200]})
+            out.append({"path": str(storage.local_file(sh["ref"])), "caption": str(sh.get("caption", ""))[:200],
+                        "video": bool(sh.get("video"))})
         except Exception as e:
             log.warning("screenshot %s not available: %s", sh, e)
     return out

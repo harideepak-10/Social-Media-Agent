@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  ArrowDown, ArrowUp, Clapperboard, Globe, ListOrdered, Loader2, MonitorPlay, Save, Trash2, Undo2, Volume2, Workflow,
+  ArrowDown, ArrowUp, Clapperboard, Film, Globe, ListOrdered, Loader2, MonitorPlay, Save, Trash2, Undo2, Volume2, Workflow,
 } from "lucide-react";
 import { api, type ItemDetail, type SceneTexts, type Storyboard } from "../lib/api";
 import { Button, Card, inputCls, useToast } from "./ui";
@@ -15,11 +15,13 @@ const TYPE: Record<string, { label: string; icon: typeof Globe; cls: string }> =
   tour: { label: "Page tour", icon: Globe, cls: "bg-sky-50 text-sky-700 ring-sky-200" },
   feature: { label: "Screen", icon: MonitorPlay, cls: "bg-amber-50 text-amber-800 ring-amber-200" },
   workflow: { label: "How it works", icon: Workflow, cls: "bg-violet-50 text-violet-700 ring-violet-200" },
+  clip: { label: "Your recording", icon: Film, cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
 };
 
 function seconds(sc: SceneTexts): number {
   const words = String(sc.voice ?? "").split(/\s+/).filter(Boolean).length;
-  const base = sc.type === "tour" ? 8.5 : sc.type === "workflow" ? 2.6 + 1.5 * (sc.steps?.length ?? 0) : 6.4;
+  const base = sc.type === "tour" ? 8.5 : sc.type === "workflow" ? 2.6 + 1.5 * (sc.steps?.length ?? 0)
+    : sc.type === "clip" ? 1.7 + (sc.clip_s ?? 6.5) : 6.4;
   return Math.min(Math.max(base, words ? words / 2.6 + 1.2 : 0), 16);
 }
 
@@ -68,7 +70,7 @@ export default function OutlineEditor({ item }: { item: ItemDetail }) {
     mutationFn: (render: boolean) => {
       const b = board!;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const edits: Record<string, unknown> = { scenes: b.scenes.map(({ screen, screen_tall, ...rest }) => rest), order };
+      const edits: Record<string, unknown> = { scenes: b.scenes.map(({ screen, screen_tall, clip, clip_s, ...rest }) => rest), order };
       if (b.intro) edits.intro = b.intro;
       if (b.outro) edits.outro = b.outro;
       if (b.festive) edits.festive = b.festive;
@@ -117,7 +119,13 @@ export default function OutlineEditor({ item }: { item: ItemDetail }) {
                 <div className="flex items-center gap-3 p-2.5">
                   <span className="w-5 text-center text-sm font-bold tabular-nums text-stone-400">{pos + 1}</span>
                   <div className="relative h-14 w-24 shrink-0 overflow-hidden rounded-lg bg-stone-100 ring-1 ring-stone-200">
-                    {sc.screen ? <img src={sc.screen} alt="" className="size-full object-cover object-top" />
+                    {sc.clip ? (
+                      <>
+                        <video src={sc.clip} poster={sc.screen} muted loop playsInline preload="none" className="size-full object-cover object-top"
+                          onMouseEnter={(e) => e.currentTarget.play().catch(() => null)} onMouseLeave={(e) => e.currentTarget.pause()} />
+                        <span className="pointer-events-none absolute bottom-0.5 left-0.5 rounded bg-black/70 px-1 text-[10px] font-semibold text-white">▶ hover</span>
+                      </>
+                    ) : sc.screen ? <img src={sc.screen} alt="" className="size-full object-cover object-top" />
                       : <span className="grid size-full place-items-center text-violet-500"><Workflow className="size-6" /></span>}
                   </div>
                   <button type="button" onClick={() => setOpen(isOpen ? null : i)} className="min-w-0 flex-1 text-left">
