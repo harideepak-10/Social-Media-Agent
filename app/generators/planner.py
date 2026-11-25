@@ -223,6 +223,49 @@ Identify this website's brand for a social media campaign. Return JSON:
     return brand
 
 
+PROMPT_MAX = 8000
+
+
+def _prompt(notes: str) -> str:
+    return (notes or "").strip()[:PROMPT_MAX]
+
+
+def _context(notes: str) -> str:
+    """The user's prompt travels with the plan into the storyboard / poster brief."""
+    p = _prompt(notes)
+    return f"\nUSER'S PROMPT (follow it closely – subject, audience, tone, what to show and say):\n{p}\n" if p else ""
+
+
+def plan_from_prompt(kind: str, day: date, notes: str, uploads: list[dict] | None = None, length: str = "") -> dict:
+    """"Create" without a website link: the user's prompt (+ their screenshots/recordings) is the brief, for our own brand."""
+    shots = "\n".join(f"- {'screen recording' if u.get('video') else 'screenshot'}: {u.get('caption') or '(no caption)'}"
+                       for u in uploads or [])
+    prompt = f"""{_brand_block()}
+
+TODAY: {day:%A %d %B %Y}
+CONTENT TYPE: {kind}{f' ({length} walkthrough)' if kind == 'video' and length else ''}
+USER'S PROMPT:
+{_prompt(notes) or '(none – make the most compelling piece about our main product)'}
+
+THE USER'S OWN SCREENSHOTS / RECORDINGS:
+{shots or '(none)'}
+TOPICS USED RECENTLY (do not repeat): {recent_topics(20) or 'none'}
+
+Plan this {kind} from the prompt. Never invent features or numbers the prompt or brand info doesn't give.
+Return JSON:
+{{"topic": "short topic title", "angle": "1-2 sentences: the idea and why viewers will care",
+  "hook": "scroll-stopping first line (max 10 words)",
+  "story": ["{'one line per scene/beat' if kind == 'video' else 'the 2-4 points the post makes'}"]}}"""
+    data = llm.complete_json(prompt, SYSTEM, max_tokens=1800)
+    c = company()
+    return {"source": "url", "topic": str(data.get("topic", ""))[:300] or "From your prompt", "angle": data.get("angle", ""),
+            "hook": data.get("hook", ""), "trend_used": "", "page_urls": [],
+            "story": [str(x)[:200] for x in data.get("story") or []][:10],
+            "product": {"name": c.get("name", ""), "url": c.get("website", ""), "description": c.get("tagline", "")},
+            "context": _context(notes), "pages_meta": [],
+            "site_summary": f"ABOUT: {c.get('name', '')} – {c.get('tagline', '')}\n\nUSER'S PROMPT:\n{_prompt(notes)}"}
+
+
 def plan_for_url(url: str, kind: str, day: date, notes: str = "", knowledge: dict | None = None,
                  length: str = "", focus_url: str = "") -> dict:
     """Plan a video/post about any website. `notes` = optional focus from the user.
@@ -240,7 +283,7 @@ WEBSITE CONTENT:
 
 TODAY: {day:%A %d %B %Y}
 CONTENT TYPE: {kind}  ({'30-45s vertical explainer video with voice-over showing the website' if kind == 'video' else 'single image post with caption'})
-USER'S FOCUS: {notes or '(none – choose the most compelling feature or overall value of the website)'}
+USER'S PROMPT: {_prompt(notes) or '(none – choose the most compelling feature or overall value of the website)'}
 
 Plan a {kind} that explains what this website/product does and why the audience should care.
 For videos, choose 2-4 pages (exact URLs from WEBSITE CONTENT) that best SHOW the functionality on screen,
@@ -256,7 +299,7 @@ Return JSON:
     return {"source": "url", "topic": data.get("topic", "")[:300], "angle": data.get("angle", ""),
             "hook": data.get("hook", ""), "trend_used": "", "page_urls": urls,
             "product": {"name": company().get("name", ""), "url": url, "description": company().get("tagline", "")},
-            "context": f"User's focus: {notes}" if notes else "", "site_summary": site}
+            "context": _context(notes), "site_summary": site}
 
 
 def _plan_from_knowledge(url: str, kind: str, day: date, notes: str, k: dict, explorer, length: str = "",
@@ -276,12 +319,13 @@ THE WEBSITE, PAGE BY PAGE (read by our site explorer):
 
 TODAY: {day:%A %d %B %Y}
 CONTENT TYPE: {kind}  ({'explainer video that walks through the product: its pages, how it works and the benefits' if kind == 'video' else 'single image post with caption'})
-USER'S FOCUS: {notes or '(none – choose the most compelling story about the product)'}
+USER'S PROMPT: {_prompt(notes) or '(none – choose the most compelling story about the product)'}
 TOPICS USED RECENTLY (do not repeat): {used or 'none'}
 
 Plan a {kind}. Use the page notes above – not just the home page.
 - Choose {n_pages} pages (exact URLs from above) that best tell the story{' in the order a new customer should see them: overview -> core features -> how it works -> proof/pricing' if kind == 'video' else ''}.
-- If the user gave a focus, build around the pages that match it.
+- If the user gave a prompt, it decides the subject, audience, tone and what to show – follow it closely and
+  build around the pages that match it.
 - Use the real workflow steps and benefits from the notes; never invent features or numbers.
 
 Return JSON:
@@ -306,7 +350,7 @@ Return JSON:
             "hook": data.get("hook", ""), "trend_used": "", "page_urls": urls,
             "story": [str(x)[:200] for x in data.get("story") or []][:10],
             "product": {"name": company().get("name", ""), "url": urls[0], "description": overview or company().get("tagline", "")},
-            "context": f"User's focus: {notes}" if notes else "",
+            "context": _context(notes),
             "pages_meta": [{"url": p["url"], "name": p["name"]} for p in chosen if p],
             "site_summary": (f"ABOUT: {overview}\n\n" if overview else "") + facts}
 

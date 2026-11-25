@@ -117,7 +117,7 @@ def run_one(item: ContentItem) -> None:
         if item.job in ("rebuild", "render"):  # render = an approved outline, made for the first time
             from . import editing
             editing.rebuild_video(item.id)
-        elif item.source_url:
+        elif item.source_url or item.source == "prompt":
             pipeline.generate_from_url(item.source_url, item.kind, item.notes, item.run_date, item.id, on_worker=True)
         else:
             pipeline.generate_own(item.id, item.run_date, item.kind)

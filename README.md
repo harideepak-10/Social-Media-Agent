@@ -145,6 +145,10 @@ python cli.py from-url https://anywebsite.com --notes "explain the booking featu
 ```
 You can also use the **🎬 Create from any website** box in the dashboard, or call `POST /api/from-url` with `{"url": "...", "kind": "video", "notes": ""}`.
 
+The link is optional: with no link, the **prompt** (up to 8,000 characters – write as much as you like) and your
+uploads are the brief, made in your own brand. Your own website (Settings) supplies facts and screens when you upload
+nothing. With a link, the prompt steers the subject, audience, tone and what to show.
+
 Video options on that page:
 - **How long:** *Short* (45–60 s highlight), *Full walkthrough* (2–4 min: a scrolling tour of every main page, screen
   close-ups and an animated "how it works" scene), or *Series* (one short Reel per main page, dated one per day, up to 5).
@@ -152,7 +156,8 @@ Video options on that page:
   reorder, remove and rename scenes, edit the voice-over and pick the voice, then press **Make video**.
 - **Your screenshots or screen recordings** (optional, drag & drop or Ctrl+V): screens the agent can't reach itself, such
   as inside your app after login. Each screenshot becomes a scene with your caption; for a post, it is used as the screen
-  in the design. Screen recordings (up to 3, MP4/MOV/WebM, max 3 min / 200 MB, e.g. Win+Alt+R) are for videos: the PC
+  in the design. Up to 25 files. Screen recordings (up to 5, MP4/MOV/WebM, max 5 min / 600 MB each, e.g. Win+Alt+R; uploaded in
+  16 MB pieces, so Supabase's 50 MB file limit doesn't apply) are for videos: the PC
   finds the moments where the screen changes and cuts them into ~6 s silent clips that play inside the browser window.
   Uploads are removed from storage when the item is deleted from the bin.
 

@@ -144,7 +144,12 @@ export default function ItemDetail() {
             )}
           </div>
           {item.angle && <p className="mt-3 max-w-3xl whitespace-pre-line text-sm text-stone-600">{item.angle}</p>}
-          {item.notes && <p className="mt-1 text-sm text-stone-500">Your focus: <em>{item.notes}</em></p>}
+          {item.notes && (
+            <details className="mt-1 max-w-3xl text-sm text-stone-500">
+              <summary className="cursor-pointer truncate">Your prompt: <em>{item.notes.slice(0, 140)}{item.notes.length > 140 ? "…" : ""}</em></summary>
+              {item.notes.length > 140 && <p className="mt-1 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 text-xs text-stone-600 ring-1 ring-stone-200">{item.notes}</p>}
+            </details>
+          )}
         </div>
 
         {!generating && !publishing && (

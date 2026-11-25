@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from . import notify, progress, publishers, storage
-from .config import env, settings, use_brand
+from .config import company, env, settings, use_brand
 from .db import ContentItem, get_session
 from .creative import engine, rotation
 from .generators import browser, planner
@@ -227,7 +227,14 @@ def delete_files(item: ContentItem) -> None:
     if item.kind == "video" and item.media_path:  # the editable storyboard + screens kept for video edits
         storage.delete_video_source(item.media_path)
     for sh in item.options.get("screenshots") or []:  # the user's uploads (recordings can be big)
-        storage.delete_media(sh.get("ref"))
+        ref = str(sh.get("ref") or "")
+        if ref.endswith("manifest.json"):  # a recording in pieces: remove the whole folder
+            rec_id = Path(ref.split("?", 1)[0]).parent.name
+            storage.delete_video_source(ref, prefix=f"uploads/recordings/{rec_id}")
+            for f in (storage.WORK_DIR / "downloads" / "recordings").glob(f"{rec_id}.*"):
+                f.unlink(missing_ok=True)
+        else:
+            storage.delete_media(ref)
     ref = item.options.get("outline_ref") if item.kind == "video" else ""
     if ref:  # an outline that was never made into a video
         storage.delete_video_source(ref, prefix=storage.outline_prefix(item.id))
@@ -298,10 +305,11 @@ def _normalize_url(url: str) -> str:
 def create_url_item(url: str, kind: str = "video", notes: str = "", options: dict | None = None) -> int:
     """Create the queue row right away (so the UI can open it) – then call generate_from_url(item_id=…).
     options: {length: short|full|series, outline: bool, screenshots: [{ref, caption}]}"""
-    url = _normalize_url(url)
+    url = _normalize_url(url) if url.strip() else ""   # no link: the prompt (+ uploads) is the brief
     with get_session() as s:
-        item = ContentItem(run_date=today(), kind=kind, source="url", origin="url", source_url=url, notes=notes,
-                           topic=f"{url} …", status="generating", stage="Queued",
+        item = ContentItem(run_date=today(), kind=kind, source="url" if url else "prompt", origin="url", source_url=url,
+                           notes=notes, topic=f"{url} …" if url else f"{notes[:80]} …" if notes else "From your uploads …",
+                           status="generating", stage="Queued",
                            platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
         item.options = options or {}
         s.add(item)
@@ -311,13 +319,14 @@ def create_url_item(url: str, kind: str = "video", notes: str = "", options: dic
 
 def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date | None = None,
                       item_id: int | None = None, on_worker: bool = False) -> ContentItem:
-    """Create a video or post about ANY website. Goes to the same approval queue."""
-    url = _normalize_url(url)
+    """Create a video or post about ANY website – or, with no link, from the user's prompt and uploads (our own
+    brand; our own website supplies facts/screens when set). Goes to the same approval queue."""
+    url = _normalize_url(url) if url.strip() else ""
     day = day or today()
     with get_session() as s:
         item = s.get(ContentItem, item_id) if item_id else None
         if item is None:
-            item = ContentItem(run_date=day, kind=kind, source="url", origin="url", source_url=url, notes=notes,
+            item = ContentItem(run_date=day, kind=kind, source="url" if url else "prompt", origin="url", source_url=url, notes=notes,
                                topic=f"{url} …", platforms=",".join((settings().get("platforms") or {}).get(kind, [])))
             s.add(item)
         item.status, item.error, item.stage, item.progress = "generating", "", "Queued", 0
@@ -326,7 +335,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
         item_id = item.id
         opts = item.options
     from .research import explorer
-    local = explorer.is_local(url)
+    local = bool(url) and explorer.is_local(url)
     if not on_worker and video_on_pc() and (kind == "video" or local):
         # videos are made on the PC; so is anything about a localhost/LAN website (only the PC can open it)
         return _queue_for_pc(item_id, local=local)
@@ -335,18 +344,34 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
     progress.report("Waiting for the previous job to finish…", 1)
     with _lock:
         try:
-            progress.report("Opening the website", 2)
-            knowledge = explorer.explore(url)          # wakes sleeping hosts, reads every useful page
-            progress.report(f"Read {len(knowledge['pages'])} pages – working out the brand", 8)
-            brand = planner.brand_for_url(knowledge.get("start") or url, knowledge=knowledge)
+            uploads = _uploads(opts)
             length = opts.get("length", "")
             focus = opts.get("focus_url", "")
-            if kind == "video" and length == "series" and not focus:
+            own = not url
+            site = url or (company().get("website") or "").strip()
+            knowledge = None
+            if site and (url or not uploads):  # no link but uploads: the uploads are the screens, the prompt the brief
+                progress.report("Opening the website" if url else "Reading your website for facts and screens", 2)
+                try:
+                    knowledge = explorer.explore(site)   # wakes sleeping hosts, reads every useful page
+                except Exception:
+                    if url:
+                        raise
+                    log.warning("own website %s unreadable – going on with the prompt only", site)
+            if url:
+                progress.report(f"Read {len(knowledge['pages'])} pages – working out the brand", 8)
+                brand = planner.brand_for_url(knowledge.get("start") or url, knowledge=knowledge)
+            else:
+                brand = dict(company())
+            if kind == "video" and length == "series" and not focus and knowledge:
                 focus = _start_series(item_id, knowledge, day, notes, opts)
             with use_brand(brand):
-                plan = planner.plan_for_url(url, kind, day, notes, knowledge=knowledge, length=length, focus_url=focus)
+                if knowledge:
+                    plan = planner.plan_for_url(site, kind, day, notes, knowledge=knowledge, length=length, focus_url=focus)
+                else:
+                    plan = planner.plan_from_prompt(kind, day, notes, uploads, length)
                 progress.report(f"Planned: {plan['topic']}", 8)
-                gen = engine.create(plan, day, item_id, kind, own=False, options={**opts, "uploads": _uploads(opts)})
+                gen = engine.create(plan, day, item_id, kind, own=own, options={**opts, "uploads": uploads})
                 qa = None if gen.get("outline") else _quality(kind, gen, plan["topic"], item_id)
             copy = gen["copy"]
             progress.check()
@@ -370,7 +395,7 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
         except progress.Stopped:
             return _stopped(item_id)
         except Exception as e:
-            log.exception("generation from %s failed", url)
+            log.exception("generation from %s failed", url or "a prompt")
             with get_session() as s:
                 item = s.get(ContentItem, item_id)
                 item.status, item.error, item.stage = "failed", str(e)[:2000], ""
@@ -381,13 +406,36 @@ def generate_from_url(url: str, kind: str = "video", notes: str = "", day: date 
 def _uploads(opts: dict) -> list[dict]:
     """The user's screenshots as local files (downloaded from cloud storage on the PC worker)."""
     out = []
-    for sh in (opts.get("screenshots") or [])[:8]:
+    for sh in (opts.get("screenshots") or [])[:25]:
         try:
-            out.append({"path": str(storage.local_file(sh["ref"])), "caption": str(sh.get("caption", ""))[:200],
+            path = _join_recording(sh["ref"]) if str(sh["ref"]).endswith("manifest.json") else storage.local_file(sh["ref"])
+            out.append({"path": str(path), "caption": str(sh.get("caption", ""))[:200],
                         "video": bool(sh.get("video"))})
         except Exception as e:
             log.warning("screenshot %s not available: %s", sh, e)
     return out
+
+
+def _join_recording(manifest_ref: str) -> Path:
+    """A screen recording uploaded in pieces -> the original file again (cached in .work/downloads)."""
+    man = json.loads(storage.read_text_ref(manifest_ref) or "{}")
+    if not man.get("parts"):
+        raise RuntimeError("recording manifest missing")
+    rec_id = Path(str(manifest_ref).split("?", 1)[0]).parent.name
+    dest = storage.WORK_DIR / "downloads" / "recordings" / f"{rec_id}{man.get('ext', '.mp4')}"
+    if dest.is_file() and dest.stat().st_size == man.get("size"):
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    progress.report("Downloading your screen recording", 3)
+    with open(dest, "wb") as out:
+        for i in range(int(man["parts"])):
+            key = f"uploads/recordings/{rec_id}/part{i:04d}"
+            part = storage.local_file(storage.media_ref_for(key, like=manifest_ref))
+            with open(part, "rb") as f:
+                shutil.copyfileobj(f, out, 1 << 20)
+            if storage.is_url(manifest_ref):
+                part.unlink(missing_ok=True)   # the cached piece is no longer needed
+    return dest
 
 
 def _save_outline(item_id: int, gen: dict, brand: dict, plan: dict) -> ContentItem:

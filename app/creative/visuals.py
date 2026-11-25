@@ -117,13 +117,15 @@ def contact_sheet(blocks: list[dict], out: Path, thumb_w: int = 460) -> Path:
     """One image with numbered thumbnails (B0, B1, …) so the AI can see all blocks at once."""
     from ..generators import graphics
 
+    if len(blocks) > 15:  # many screens (the user's uploads): smaller thumbnails, more per row
+        thumb_w = min(thumb_w, 340)
     thumbs = []
     for b in blocks:
         im = Image.open(b["path"]).convert("RGB")
-        im.thumbnail((thumb_w, 340))
+        im.thumbnail((thumb_w, 340 if thumb_w > 400 else 250))
         thumbs.append((b["id"], im))
-    cols = 3
-    cell_w, cell_h = thumb_w + 20, 340 + 50
+    cols = 3 if len(thumbs) <= 15 else 4 if len(thumbs) <= 24 else 5
+    cell_w, cell_h = thumb_w + 20, (340 if thumb_w > 400 else 250) + 50
     rows = (len(thumbs) + cols - 1) // cols
     sheet = Image.new("RGB", (cols * cell_w, max(1, rows) * cell_h), "white")
     from PIL import ImageDraw

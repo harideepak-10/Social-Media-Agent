@@ -31,12 +31,13 @@ export default function Create() {
   const recInPost = kind === "post" && shots.some((s) => s.video);
 
   const cleaned = url.trim();
-  const valid = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(:\d+)?(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
+  const hasInput = !!cleaned || !!notes.trim() || shots.length > 0;
+  const valid = !cleaned || /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(:\d+)?(\/\S*)?$/i.test(cleaned) || /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i.test(cleaned);
   // only this PC can open these – the job goes to the PC worker (run_video_worker.bat)
   const local = /^(https?:\/\/)?(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|[\w-]+\.(local|lan)(?=[:/]|$))/i.test(cleaned);
 
   const recent = useQuery({ queryKey: ["items", "recent-url"], queryFn: () => api.items({ q: "", limit: 60 }), refetchInterval: 10000 });
-  const fromLinks = (recent.data?.items ?? []).filter((i) => i.source_url).slice(0, 6);
+  const fromLinks = (recent.data?.items ?? []).filter((i) => i.source_url || i.source === "prompt").slice(0, 6);
 
   const create = useMutation({
     mutationFn: () => api.fromUrl(cleaned, kind, notes, {
@@ -54,14 +55,14 @@ export default function Create() {
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-8 md:px-10">
-      <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Create from any website</h1>
-      <p className="mt-1 text-sm text-stone-500">Paste a link. The agent explores the whole site – every main page, how it works and its benefits – takes its design and best screens, and makes a video or post for it.</p>
+      <h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">Create a video or post</h1>
+      <p className="mt-1 text-sm text-stone-500">Paste a link, write a prompt, add screenshots or screen recordings – any of them. With a link the agent explores the whole site and uses its design; without one it uses your brand and your prompt.</p>
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card className="p-4 sm:p-6 md:p-8">
-          <form onSubmit={(e) => { e.preventDefault(); setTouched(true); if (valid) create.mutate(); }} className="space-y-7">
+          <form onSubmit={(e) => { e.preventDefault(); setTouched(true); if (valid && hasInput) create.mutate(); }} className="space-y-7">
             <div>
-              <label className="text-sm font-bold">Website link</label>
+              <label className="text-sm font-bold">Website link <span className="font-normal text-stone-400">(optional)</span></label>
               <div className={clsx("mt-2 flex items-center gap-3 rounded-xl bg-stone-50 px-4 py-3 ring-1 transition focus-within:bg-white focus-within:ring-2",
                 touched && cleaned && !valid ? "ring-red-300 focus-within:ring-red-500" : "ring-stone-200 focus-within:ring-ink-900")}>
                 <Globe className="size-5 shrink-0 text-stone-400" />
@@ -70,12 +71,28 @@ export default function Create() {
                   className="w-full bg-transparent text-base outline-none placeholder:text-stone-400" />
               </div>
               {touched && cleaned && !valid && <p className="mt-1.5 text-xs text-red-600">That doesn't look like a website link.</p>}
-              {valid && local && (
+              {cleaned && valid && local && (
                 <p className="mt-1.5 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800 ring-1 ring-indigo-200">
                   <b>Local address</b> – only your PC can open it, so your PC makes this one. Keep <code>run_video_worker.bat</code> running and the site started.
                 </p>
               )}
-              <p className="mt-1.5 text-xs text-stone-400">Paste the home page – the agent finds the other pages itself. Free-hosted sites (e.g. Render) that are asleep are woken up automatically. Sites that need a login: run <code className="rounded bg-stone-100 px-1">python cli.py login --url …</code> once.</p>
+              <p className="mt-1.5 text-xs text-stone-400">Paste the home page – the agent finds the other pages itself. Leave it empty to make it from your prompt and uploads (your own brand). Free-hosted sites (e.g. Render) that are asleep are woken up automatically. Sites that need a login: run <code className="rounded bg-stone-100 px-1">python cli.py login --url …</code> once.</p>
+            </div>
+
+            <div>
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="text-sm font-bold" htmlFor="prompt">Prompt <span className="font-normal text-stone-400">(optional with a link)</span></label>
+                <span className={clsx("text-xs tabular-nums", notes.length > 7500 ? "text-amber-600" : "text-stone-400")}>{notes.length.toLocaleString()} / 8,000</span>
+              </div>
+              <textarea id="prompt" value={notes} onChange={(e) => setNotes(e.target.value)} rows={notes.length > 300 ? 10 : 5} maxLength={8000}
+                placeholder={"Tell the agent what to make – as short or as detailed as you like.\ne.g. A 60-second video for clinic owners about our appointment booking: start with the no-show problem, show booking → reminder → check-in, mention the free trial, friendly tone."}
+                className="mt-2 w-full resize-y rounded-xl bg-stone-50 p-4 text-sm leading-relaxed outline-none ring-1 ring-stone-200 focus:bg-white focus:ring-2 focus:ring-ink-900" />
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {IDEAS.map((idea) => (
+                  <button type="button" key={idea} onClick={() => setNotes((n) => (n.trim() ? `${n.trim()}\n${idea}` : idea))}
+                    className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600 hover:bg-stone-200">+ {idea}</button>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -131,25 +148,13 @@ export default function Create() {
                   ? "Add screens the agent can't reach itself – e.g. inside your app after login. A screenshot becomes a scene with your caption; from a screen recording (Win+Alt+R) the agent cuts the best moments into clips that play in the video."
                   : "Add a screen of your product – the post shows it instead of a captured one."}
               </p>
-              <ScreenshotDrop shots={shots} onChange={setShots} max={kind === "video" ? 10 : 2} allowVideo={kind === "video"} />
+              <ScreenshotDrop shots={shots} onChange={setShots} max={kind === "video" ? 25 : 2} allowVideo={kind === "video"} />
               {recInPost && <p className="mt-1.5 text-xs text-red-600">Screen recordings are for videos – remove them, or switch to Walkthrough video.</p>}
             </div>
 
-            <div>
-              <label className="text-sm font-bold">Focus <span className="font-normal text-stone-400">(optional)</span></label>
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={400}
-                placeholder="e.g. explain the booking feature, aimed at clinic owners"
-                className="mt-2 w-full resize-none rounded-xl bg-stone-50 p-4 text-sm outline-none ring-1 ring-stone-200 focus:bg-white focus:ring-2 focus:ring-ink-900" />
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {IDEAS.map((idea) => (
-                  <button type="button" key={idea} onClick={() => setNotes(idea)}
-                    className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600 hover:bg-stone-200">{idea}</button>
-                ))}
-              </div>
-            </div>
 
             <Button type="submit" variant="primary" className="w-full py-3 text-base" loading={create.isPending}
-              icon={<Wand2 className="size-5" />} disabled={!cleaned || uploading || recInPost}>
+              icon={<Wand2 className="size-5" />} disabled={!hasInput || !valid || uploading || recInPost}>
               {uploading ? "Uploading…" : kind === "post" ? "Create post"
                 : length === "series" ? "Create series" : outline ? "Create outline" : "Create video"}
             </Button>
@@ -178,7 +183,7 @@ export default function Create() {
           </Card>
 
           <Card className="p-4 sm:p-6">
-            <h2 className="font-bold">Recent from links</h2>
+            <h2 className="font-bold">Recently created here</h2>
             {fromLinks.length === 0 ? (
               <p className="mt-2 text-sm text-stone-400">Nothing yet – your first one will show up here.</p>
             ) : (

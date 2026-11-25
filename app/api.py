@@ -7,7 +7,7 @@ import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 
@@ -428,7 +428,8 @@ def item_action(item_id: int, action: str, _: str = User):
                 item.status, item.stage, item.progress, item.error = "rejected", "", 0, "Stopped by you"
         elif action == "regenerate":
             url, kind, notes, day = item.source_url, item.kind, item.notes, item.run_date
-            if url:
+            from_link = bool(url) or item.source == "prompt"
+            if from_link:
                 item.status, item.stage, item.progress = "generating", "Queued", 0
             else:
                 item.status = "rejected"
@@ -448,7 +449,7 @@ def item_action(item_id: int, action: str, _: str = User):
     if action == "check":
         return _run_check(item_id)
     if action == "regenerate":
-        if url:
+        if from_link:
             _bg(pipeline.generate_from_url, url, kind, notes, None, item_id)
         else:
             _bg(pipeline.generate_for, day, kind, True, origin="regenerate", notes=notes)
@@ -464,16 +465,18 @@ class ShotIn(BaseModel):
 
 
 class FromUrlIn(BaseModel):
-    url: str = Field(min_length=4)
+    url: str = ""                  # optional: without a link the prompt (+ uploads) is the brief
     kind: str = "video"
-    notes: str = ""
+    notes: str = Field("", max_length=8000)   # the prompt – can be long
     length: str = "short"          # video: short | full | series
     outline: bool = True           # video: show the scene outline first, render after "Make video"
-    screenshots: list[ShotIn] = Field(default_factory=list, max_length=10)   # images and screen recordings
+    screenshots: list[ShotIn] = Field(default_factory=list, max_length=25)   # images and screen recordings
 
 
-UPLOAD_KEY = re.compile(r"uploads/(shots/[0-9a-f]{32}\.(png|jpg)|recordings/[0-9a-f]{32}\.(mp4|mov|webm|mkv))$")
-REC_MAX_MB, REC_MAX_S = 200, 180
+UPLOAD_KEY = re.compile(r"uploads/(shots/[0-9a-f]{32}\.(png|jpg)|recordings/[0-9a-f]{32}(\.(mp4|mov|webm|mkv)|/manifest\.json))$")
+REC_MAX_MB, REC_MAX_S, REC_MAX = 600, 300, 5       # per recording: 600 MB, 5 minutes; up to 5 recordings
+SHOTS_MAX = 25                                     # screenshots + recordings per item
+REC_EXT = (".mp4", ".mov", ".webm", ".mkv")
 
 
 @router.post("/uploads/screenshot")
@@ -509,40 +512,93 @@ async def upload_screenshot(file: UploadFile = File(...), _: str = User):
     return {"ref": ref, "url": storage.web_url(ref), "w": img.width, "h": img.height}
 
 
-@router.post("/uploads/recording")
-async def upload_recording(file: UploadFile = File(...), _: str = User):
-    """A screen recording for Create from URL – the PC cuts the best moments into moving clips. Returns {ref, url, seconds}."""
+# Screen recordings arrive in pieces (≤ 16 MB per request): no proxy/body limits, a progress bar, retries per piece,
+# and no single file over Supabase's 50 MB per-file limit. The PC joins the pieces back into the original file.
+REC_CHUNK = 16 << 20
+REC_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+class RecStartIn(BaseModel):
+    name: str = Field(max_length=300)
+    size: int = Field(gt=0)
+
+
+@router.post("/uploads/recording/start")
+def recording_start(body: RecStartIn, _: str = User):
     import uuid
+    ext = Path(body.name).suffix.lower()
+    if ext not in REC_EXT:
+        raise HTTPException(400, "Upload an MP4, MOV, WebM or MKV screen recording")
+    if body.size > REC_MAX_MB << 20:
+        raise HTTPException(400, f"Recordings must be under {REC_MAX_MB} MB")
+    return {"id": uuid.uuid4().hex, "ext": ext, "chunk_size": REC_CHUNK}
+
+
+def _rec_dir(rec_id: str) -> Path:
+    from . import storage
+    if not REC_ID.match(rec_id):
+        raise HTTPException(400, "Bad upload id")
+    return storage.WORK_DIR / "uploads" / rec_id
+
+
+@router.put("/uploads/recording/{rec_id}/{n}")
+async def recording_part(rec_id: str, n: int, request: Request, _: str = User):
+    from . import storage
+    if not 0 <= n < (REC_MAX_MB << 20) // REC_CHUNK + 2:
+        raise HTTPException(400, "Too many pieces")
+    d = _rec_dir(rec_id)
+    d.mkdir(parents=True, exist_ok=True)
+    part, size = d / f"part{n:04d}", 0
+    with open(part, "wb") as out:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > REC_CHUNK + (1 << 20):
+                raise HTTPException(400, "Piece too big")
+            out.write(chunk)
+    key = f"uploads/recordings/{rec_id}/part{n:04d}"
+    ref = storage.save_file(part, key)
+    if storage.is_url(ref):  # in the cloud now – keep only the copy needed to check the whole file at the end
+        (storage.MEDIA_DIR / key).unlink(missing_ok=True)
+    return {"ok": True, "n": n, "size": size}
+
+
+class RecFinishIn(BaseModel):
+    parts: int = Field(gt=0, le=64)
+    ext: str
+
+
+@router.post("/uploads/recording/{rec_id}/finish")
+def recording_finish(rec_id: str, body: RecFinishIn, _: str = User):
+    """All pieces are in: check it's a readable video of the allowed length, then write its manifest."""
+    import shutil
+    import subprocess
     from . import storage
     from .generators import ffmpeg
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in (".mp4", ".mov", ".webm", ".mkv"):
-        raise HTTPException(400, "Upload an MP4, MOV, WebM or MKV screen recording")
-    tmp = storage.WORK_DIR / "uploads"
-    tmp.mkdir(parents=True, exist_ok=True)
-    name = uuid.uuid4().hex + ext
-    dest, size = tmp / name, 0
+    d = _rec_dir(rec_id)
+    parts = [d / f"part{i:04d}" for i in range(body.parts)]
+    if body.ext not in REC_EXT or not all(p.is_file() for p in parts):
+        raise HTTPException(400, "Some pieces are missing – upload it again")
     try:
-        with open(dest, "wb") as out:  # streamed to disk – never the whole file in memory
-            while chunk := await file.read(1 << 20):
-                size += len(chunk)
-                if size > REC_MAX_MB << 20:
-                    raise HTTPException(400, f"Recordings must be under {REC_MAX_MB} MB – trim it or record a smaller window")
-                out.write(chunk)
+        size = sum(p.stat().st_size for p in parts)
+        proc = subprocess.run([ffmpeg.FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "json",
+                               "concat:" + "|".join(str(p) for p in parts)], capture_output=True, text=True, timeout=120)
         try:
-            secs = ffmpeg.duration(dest)
+            secs = float(json.loads(proc.stdout)["format"]["duration"])
         except Exception:
             raise HTTPException(400, "That file isn't a video this agent can read")
         if secs > REC_MAX_S + 5:
             raise HTTPException(400, f"Recordings can be up to {REC_MAX_S // 60} minutes – this one is {int(secs // 60)}:{int(secs % 60):02d}")
         if secs < 2:
             raise HTTPException(400, "That recording is too short")
-        ref = storage.save_file(dest, f"uploads/recordings/{name}")
-        if storage.is_url(ref):  # it's in the cloud now – don't keep a 200 MB copy on this small server
-            (storage.MEDIA_DIR / f"uploads/recordings/{name}").unlink(missing_ok=True)
+        man = d / "manifest.json"
+        man.write_text(json.dumps({"ext": body.ext, "parts": body.parts, "size": size, "seconds": round(secs, 1)}))
+        ref = storage.save_file(man, f"uploads/recordings/{rec_id}/manifest.json")
+    except HTTPException:
+        storage.delete_video_source(storage.remote_url("x") if storage.remote_enabled() else "", prefix=f"uploads/recordings/{rec_id}")
+        raise
     finally:
-        dest.unlink(missing_ok=True)
-    return {"ref": ref, "url": storage.web_url(ref), "seconds": round(secs, 1)}
+        shutil.rmtree(d, ignore_errors=True)
+    return {"ref": ref, "url": "", "seconds": round(secs, 1)}
 
 
 @router.post("/from-url")
@@ -562,15 +618,22 @@ def from_url(body: FromUrlIn, _: str = User):
         ref = storage.remote_url(m.group(0)) if storage.remote_enabled() else str(MEDIA_DIR / m.group(0))
         shots.append({"ref": ref, "caption": sh.caption.strip(),
                       **({"video": True} if m.group(0).startswith("uploads/recordings/") else {})})
-    if sum(1 for s in shots if s.get("video")) > 3:
-        raise HTTPException(400, "Up to 3 screen recordings")
+    if sum(1 for s in shots if s.get("video")) > REC_MAX:
+        raise HTTPException(400, f"Up to {REC_MAX} screen recordings")
+    url = body.url.strip()
+    if url and not re.fullmatch(r"(https?://)?[\w.-]+(:\d+)?(/\S*)?", url):
+        raise HTTPException(400, "That doesn't look like a website link")
+    if not url and not body.notes.strip() and not shots:
+        raise HTTPException(400, "Add a website link, a prompt, or some screenshots / recordings")
+    if not url and not shots and body.kind == "video" and not (company().get("website") or "").strip():
+        raise HTTPException(400, "For a video without a link, upload screenshots or a screen recording to show")
     if body.kind == "post" and any(s.get("video") for s in shots):
         raise HTTPException(400, "Screen recordings are for videos – for a post, add a screenshot")
     options = {"screenshots": shots} if shots else {}
     if body.kind == "video":
         options.update(length=body.length, outline=body.outline)
-    item_id = pipeline.create_url_item(body.url, body.kind, body.notes.strip(), options)
-    _bg(pipeline.generate_from_url, body.url, body.kind, body.notes.strip(), None, item_id)
+    item_id = pipeline.create_url_item(url, body.kind, body.notes.strip(), options)
+    _bg(pipeline.generate_from_url, url, body.kind, body.notes.strip(), None, item_id)
     return {"id": item_id}
 
 

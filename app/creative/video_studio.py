@@ -135,7 +135,7 @@ def capture_pages(plan: dict, work: Path, uploads: list[dict] | None = None, max
         progress.check()
         try:
             out["blocks"] += recording.clips(Path(up["path"]), up.get("caption", ""), j, work / f"rec{j}",
-                                             max_clips=6 if len(recs) == 1 else 4)
+                                             max_clips={1: 8, 2: 5}.get(len(recs), 3))
         except Exception as e:
             log.warning("screen recording %s skipped: %s", up["path"], e)
     for j, up in enumerate(imgs):  # user's screenshots (e.g. inside the app, behind a login)
@@ -157,7 +157,7 @@ def walkthrough_storyboard(plan: dict, product: dict | None, cap: dict, work: Pa
     L = LENGTHS.get(length, LENGTHS["short"])
     blocks = cap["blocks"]
     # the user's own material first (recordings, screenshots), so it always makes the contact sheet
-    sheet_blocks = sorted(blocks, key=lambda b: 0 if b.get("user") else 1)[:24]
+    sheet_blocks = sorted(blocks, key=lambda b: 0 if b.get("user") else 1)[:32]
     sheet = visuals.contact_sheet(sheet_blocks, work / "sheet.jpg") if sheet_blocks else None
     c = company()
     def bid(b):

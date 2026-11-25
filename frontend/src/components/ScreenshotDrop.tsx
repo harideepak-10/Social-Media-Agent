@@ -8,9 +8,9 @@ import { useToast } from "./ui";
 
 export interface Shot { id: string; preview: string; ref?: string; caption: string; video?: boolean; seconds?: number; progress?: number }
 
-const REC_MAX_MB = 200;
-const REC_MAX_S = 180;
-const REC_MAX = 3;
+const REC_MAX_MB = 600;
+const REC_MAX_S = 300;
+const REC_MAX = 5;
 const isVideo = (f: File) => f.type.startsWith("video/") || /\.(mp4|mov|webm|mkv)$/i.test(f.name);
 
 function videoSeconds(url: string): Promise<number> {

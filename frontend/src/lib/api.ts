@@ -238,23 +238,46 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Screen recordings can be 200 MB: XHR so the page can show upload progress. */
-function uploadRecording(file: File, onProgress?: (pct: number) => void): Promise<{ ref: string; url: string; seconds: number }> {
+/** Screen recordings (up to 600 MB) go up in 16 MB pieces: progress, a retry per piece, no proxy body limits. */
+function putPiece(url: string, blob: Blob, onProgress: (loaded: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/uploads/recording");
+    xhr.open("PUT", url);
     if (auth.token) xhr.setRequestHeader("Authorization", `Bearer ${auth.token}`);
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
     xhr.onload = () => {
-      let body: { detail?: unknown } & Record<string, unknown> = {};
-      try { body = JSON.parse(xhr.responseText); } catch { /* not json */ }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(body as unknown as { ref: string; url: string; seconds: number });
-      else reject(new ApiError(xhr.status, typeof body.detail === "string" ? body.detail
-        : xhr.status === 413 ? "The file is too big for the server – trim the recording" : `Upload failed (${xhr.status})`));
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let msg = `Upload failed (${xhr.status})`;
+      try { const d = JSON.parse(xhr.responseText).detail; if (typeof d === "string") msg = d; } catch { /* not json */ }
+      reject(new ApiError(xhr.status, msg));
     };
     xhr.onerror = () => reject(new ApiError(0, "Upload failed – check your connection"));
-    const f = new FormData(); f.append("file", file); xhr.send(f);
+    xhr.send(blob);
   });
+}
+
+async function uploadRecording(file: File, onProgress?: (pct: number) => void): Promise<{ ref: string; url: string; seconds: number }> {
+  const start = await request<{ id: string; ext: string; chunk_size: number }>("/api/uploads/recording/start",
+    { method: "POST", body: JSON.stringify({ name: file.name, size: file.size }) });
+  const size = start.chunk_size;
+  const parts = Math.max(1, Math.ceil(file.size / size));
+  for (let n = 0; n < parts; n++) {
+    const blob = file.slice(n * size, Math.min(file.size, (n + 1) * size));
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await putPiece(`/api/uploads/recording/${start.id}/${n}`, blob,
+          (loaded) => onProgress?.(Math.min(99, Math.round(((n * size + loaded) / file.size) * 100))));
+        break;
+      } catch (e) {
+        if (attempt >= 3 || (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408)) throw e;
+        await sleep(3000 * (attempt + 1));
+      }
+    }
+  }
+  onProgress?.(99);
+  return request<{ ref: string; url: string; seconds: number }>(`/api/uploads/recording/${start.id}/finish`,
+    { method: "POST", body: JSON.stringify({ parts, ext: start.ext }) });
 }
 
 export const api = {

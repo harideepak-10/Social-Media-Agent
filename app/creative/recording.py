@@ -18,7 +18,7 @@ WIDTH = 1280          # clips are scaled to this width (the browser window in a 
 FPS = 15              # screen recordings look smooth at 15 fps and the frames stay light
 CLIP_S = 6.5          # length of one clip
 MAX_CLIPS = 6         # per recording
-MAX_SECONDS = 185
+MAX_SECONDS = 305     # recordings can be up to 5 minutes
 
 
 def _activity(src: Path, work: Path, secs: float) -> list[float]:
