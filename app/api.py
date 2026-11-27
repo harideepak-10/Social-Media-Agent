@@ -470,6 +470,7 @@ class FromUrlIn(BaseModel):
     notes: str = Field("", max_length=8000)   # the prompt – can be long
     length: str = "short"          # video: short | full | series
     outline: bool = True           # video: show the scene outline first, render after "Make video"
+    style: str = "tour"            # video: tour = full-screen product tour (spotlight + cursor), classic = screens + text
     screenshots: list[ShotIn] = Field(default_factory=list, max_length=25)   # images and screen recordings
 
 
@@ -631,7 +632,7 @@ def from_url(body: FromUrlIn, _: str = User):
         raise HTTPException(400, "Screen recordings are for videos – for a post, add a screenshot")
     options = {"screenshots": shots} if shots else {}
     if body.kind == "video":
-        options.update(length=body.length, outline=body.outline)
+        options.update(length=body.length, outline=body.outline, style="classic" if body.style == "classic" else "tour")
     item_id = pipeline.create_url_item(url, body.kind, body.notes.strip(), options)
     _bg(pipeline.generate_from_url, url, body.kind, body.notes.strip(), None, item_id)
     return {"id": item_id}

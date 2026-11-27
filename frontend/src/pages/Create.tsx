@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ArrowRight, Film, Globe, ImageIcon, ListChecks, Palette, ScanSearch, Sparkles, Wand2 } from "lucide-react";
-import { api, type VideoLength } from "../lib/api";
+import { api, type VideoLength, type VideoStyle } from "../lib/api";
 import ScreenshotDrop, { type Shot } from "../components/ScreenshotDrop";
 import { ago, displayTitle } from "../lib/ui";
 import { Button, Card, StatusBadge, useToast } from "../components/ui";
@@ -26,6 +26,7 @@ export default function Create() {
   const [touched, setTouched] = useState(false);
   const [length, setLength] = useState<VideoLength>("short");
   const [outline, setOutline] = useState(true);
+  const [style, setStyle] = useState<VideoStyle>("tour");
   const [shots, setShots] = useState<Shot[]>([]);
   const uploading = shots.some((s) => !s.ref);
   const recInPost = kind === "post" && shots.some((s) => s.video);
@@ -41,7 +42,7 @@ export default function Create() {
 
   const create = useMutation({
     mutationFn: () => api.fromUrl(cleaned, kind, notes, {
-      length, outline,
+      length, outline, style,
       screenshots: shots.filter((s) => s.ref).map((s) => ({ ref: s.ref!, caption: s.caption })),
     }),
     onSuccess: ({ id }) => {
@@ -116,6 +117,20 @@ export default function Create() {
 
             {kind === "video" && (
               <div>
+                <label className="text-sm font-bold">Style</label>
+                <div className="mb-5 mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([
+                    ["tour", "Product tour", "Full-screen app, a cursor clicks through the pages, each section lights up with a label – like a launch demo"],
+                    ["classic", "Classic", "Screens in a browser window with headline and points beside them"],
+                  ] as const).map(([k, t, d]) => (
+                    <button type="button" key={k} onClick={() => setStyle(k)}
+                      className={clsx("rounded-xl p-3 text-left ring-1 transition",
+                        style === k ? "bg-brand-50 ring-2 ring-brand-600" : "bg-white ring-stone-200 hover:ring-stone-300")}>
+                      <span className="block text-sm font-semibold">{t}{k === "tour" && <span className="ml-1.5 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">New</span>}</span>
+                      <span className="mt-0.5 block text-xs text-stone-500">{d}</span>
+                    </button>
+                  ))}
+                </div>
                 <label className="text-sm font-bold">How long?</label>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {([

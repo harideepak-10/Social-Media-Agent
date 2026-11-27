@@ -38,8 +38,9 @@ export interface Item {
 }
 
 export type VideoLength = "short" | "full" | "series";
+export type VideoStyle = "tour" | "classic";
 export interface ItemOptions {
-  length?: VideoLength; outline?: boolean; screenshots?: number;
+  length?: VideoLength; outline?: boolean; screenshots?: number; style?: VideoStyle;
   series_part?: number; series_total?: number; series_of?: number;
 }
 export interface Screenshot { ref: string; url: string; caption: string; w?: number; h?: number }
@@ -89,8 +90,8 @@ export interface SceneTexts {
   eyebrow?: string; headline?: string; accent?: string; sub?: string; voice?: string; cta?: string; url?: string;
   greeting?: string; name?: string; quote?: string;
   bullets?: { icon: string; text: string }[]; badges?: { value: string; label: string }[]; screen?: string;
-  type?: "feature" | "tour" | "workflow" | "clip"; page_name?: string; screen_tall?: boolean; clip?: string; clip_s?: number;
-  steps?: { icon: string; title: string; desc: string }[];
+  type?: "feature" | "tour" | "workflow" | "clip" | "spot" | "shot"; page_name?: string; screen_tall?: boolean; clip?: string; clip_s?: number;
+  steps?: { icon?: string; title: string; desc?: string; rect?: number[] | null }[];
 }
 export interface Storyboard {
   board: { festive?: SceneTexts; intro?: SceneTexts; scenes: SceneTexts[]; grid?: SceneTexts & { items?: unknown[] }; outro?: SceneTexts; voice_name: string; _seconds?: number };
@@ -328,7 +329,7 @@ export const api = {
   setupRestart: () => request<{ ok: boolean }>("/api/setup/restart", { method: "POST" }),
   deleteRejected: () => request<{ deleted: number }>("/api/items/delete-rejected", { method: "POST" }),
   fromUrl: (url: string, kind: "video" | "post", notes: string,
-            opts: { length?: VideoLength; outline?: boolean; screenshots?: { ref: string; caption: string }[] } = {}) =>
+            opts: { length?: VideoLength; outline?: boolean; style?: VideoStyle; screenshots?: { ref: string; caption: string }[] } = {}) =>
     request<{ id: number }>("/api/from-url", { method: "POST", body: JSON.stringify({ url, kind, notes, ...opts }) }),
   schedule: () => request<Schedule>("/api/schedule"),
   saveSchedule: (body: Partial<Omit<Schedule, "next_runs" | "timezone">>) =>

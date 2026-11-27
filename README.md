@@ -150,6 +150,11 @@ uploads are the brief, made in your own brand. Your own website (Settings) suppl
 nothing. With a link, the prompt steers the subject, audience, tone and what to show.
 
 Video options on that page:
+- **Style:** *Product tour* (default) – the real app full screen, a cursor that moves and clicks through the pages,
+  and one section at a time lifted out of a blurred screen with a numbered label, like a SaaS launch demo. Screen
+  recordings play full screen with the spotlight on where the action happens. *Classic* – screens in a browser
+  window with a headline and points beside them. For an app behind a login, run `python cli.py login --url …` once
+  on the PC so the agent can open its pages.
 - **How long:** *Short* (45–60 s highlight), *Full walkthrough* (2–4 min: a scrolling tour of every main page, screen
   close-ups and an animated "how it works" scene), or *Series* (one short Reel per main page, dated one per day, up to 5).
 - **Show me the outline first** (on by default): the agent stops after writing the scenes. On the item page you can

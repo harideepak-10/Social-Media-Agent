@@ -26,7 +26,7 @@ from .. import llm, progress
 from .. import storage
 from ..config import ASSETS_DIR, company, settings
 from ..generators import browser, ffmpeg, tts
-from . import assets, brandfix, festive, icons, recording, rotation, visuals
+from . import assets, brandfix, festive, icons, recording, rotation, tour, visuals
 from .catalog import ICONS, VIDEO_THEMES
 
 log = logging.getLogger(__name__)
@@ -636,6 +636,9 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
             [("grid", board.get("grid") or {}), ("outro", board.get("outro") or {})]
     if not (board.get("grid") or {}).get("items"):
         parts = [p for p in parts if p[0] != "grid"]
+    styled = board.get("_style") == "tour"   # full-screen product tour (tour.py)
+    if styled:
+        parts = [p for p in parts if p[0] != "grid"]
     base = {"festive": 5.8, "intro": 4.6, "scene": 6.4, "grid": 6.0, "outro": 5.0}
     timeline, t0 = [], 0.0
     for i, (kind, d) in enumerate(parts):
@@ -643,6 +646,13 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         if voice and d.get("voice"):
             vpath, vsec = tts.speak(d["voice"], work / f"vo_{i}", voice=voice_name or board.get("voice_name") or None)
         stype = d.get("type", "feature") if kind == "scene" else ""
+        if styled:
+            b = tour.base_seconds(d) if kind == "scene" else {"intro": 4.2, "outro": 5.0}.get(kind, base[kind])
+            dur = max(b, vsec + 1.0) if vpath else b
+            dur = min(dur, 20.0)
+            timeline.append((kind, d, vpath, t0, dur))
+            t0 += dur
+            continue
         clip_s = (d.get("_clip") or {}).get("n", 0) / recording.FPS
         b = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(d.get("steps") or [])}.get(stype, base[kind])
         if clip_s:
@@ -659,7 +669,14 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
         size = SIZES[orient]
         scenes, si = [], 0
         for i, (kind, d, _, _, dur) in enumerate(timeline):
-            if kind == "festive":
+            if styled and kind in ("intro", "outro"):
+                doc = tour.scene_title(d, theme, size, dur, "logo_light.png" if logo_file else None, outro=kind == "outro")
+            elif styled and kind == "scene" and d.get("type") == "spot":
+                nxt = next((x[1] for x in timeline[i + 1:] if x[0] == "scene"), None)
+                doc = tour.scene_spot(d, theme, size, dur, None, tour.nav_rect(d, nxt))
+            elif styled and kind == "scene":
+                doc = tour.scene_media(d, theme, size, dur, None)
+            elif kind == "festive":
                 doc = festive.video_scene(d, d.get("kit") or festive.kit_for(d.get("name", "")), size, dur,
                                           "logo_light.png" if logo_file else None, seed=len(d.get("name", "")) * 97 + i)
             elif kind == "intro":
@@ -704,14 +721,18 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
 
 def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict | None,
              theme_spec: dict | None = None, length: str = "", uploads: list[dict] | None = None,
-             outline_only: bool = False, source_dir: Path | None = None) -> dict:
+             outline_only: bool = False, source_dir: Path | None = None, style: str = "tour") -> dict:
     """length "" = the classic promo; "short"/"full" = a walkthrough of every chosen page (+ the user's screenshots).
     outline_only: stop after the storyboard (the user reviews/reorders the scenes, then "Make video" renders it)."""
     vcfg = settings().get("video") or {}
     work = storage.work_dir("video", item_id)
     voice = bool(vcfg.get("voiceover", True))
 
-    if length or uploads:
+    if (length or uploads) and style == "tour":  # full-screen product tour with spotlights and a moving cursor
+        cap = tour.capture(plan, work, uploads, max_pages=8 if length == "full" else 4)
+        progress.report(f"AI is writing the product tour from {len(cap['screens'])} screens and {len(cap['media'])} clips", 25)
+        board = tour.storyboard(plan, product, cap, work, voice, length or "short")
+    elif length or uploads:
         cap = capture_pages(plan, work, uploads, max_pages=6 if length == "full" else 4)
         progress.report(f"AI is writing the walkthrough from {len(cap['pages'])} pages and {len(cap['blocks'])} screens", 25)
         board = walkthrough_storyboard(plan, product, cap, work, voice, length or "short")
@@ -764,6 +785,12 @@ def estimate_seconds(board: dict) -> float:
     """Rough length before rendering (for the outline screen)."""
     t = 5.8 if (board.get("festive") or {}).get("name") else 0
     t += 4.6 + 5.0 + (6.0 if (board.get("grid") or {}).get("items") else 0)
+    if board.get("_style") == "tour":
+        t = 4.2 + 5.0
+        for sc in board.get("scenes") or []:
+            words = len(str(sc.get("voice") or "").split())
+            t += min(max(tour.base_seconds(sc), words / 2.6 + 1.0), 20.0)
+        return round(t)
     for sc in board.get("scenes") or []:
         words = len(str(sc.get("voice") or "").split())
         base = {"tour": 8.5, "workflow": 2.6 + 1.5 * len(sc.get("steps") or []),

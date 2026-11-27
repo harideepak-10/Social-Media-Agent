@@ -66,6 +66,36 @@ def _windows(act: list[float], secs: float, n: int) -> list[tuple[float, float]]
     return out
 
 
+def _focus(clip: Path, work: Path) -> list[float] | None:
+    """Where on screen the action is in this clip (the area that keeps changing), as [x, y, w, h] fractions –
+    for the spotlight. None when the whole screen changes (page switch) or nothing does."""
+    d = work / f"focus_{clip.stem}"
+    d.mkdir(parents=True, exist_ok=True)
+    ffmpeg.run(["-i", str(clip), "-vf", "fps=4,scale=320:-2,format=gray", str(d / "f%03d.png")])
+    frames = [Image.open(f).convert("L") for f in sorted(d.glob("f*.png"))]
+    if len(frames) < 3:
+        return None
+    w, h = frames[0].size
+    acc = Image.new("L", (w, h), 0)
+    changes = 0
+    for a, b in zip(frames, frames[1:]):
+        diff = ImageChops.difference(a, b).point(lambda v: 40 if v > 18 else 0)
+        box = diff.getbbox()
+        if not box or (box[2] - box[0]) * (box[3] - box[1]) > w * h * 0.8:  # nothing, or a full page change
+            continue
+        acc = ImageChops.add(acc, diff)
+        changes += 1
+    box = acc.point(lambda v: 255 if v >= 80 else 0).getbbox() or acc.getbbox()  # changed in >= 2 frames
+    if not changes or not box:
+        return None
+    x0, y0, x1, y1 = box
+    pad_x, pad_y = w * 0.04, h * 0.05
+    x0, y0, x1, y1 = max(0, x0 - pad_x), max(0, y0 - pad_y), min(w, x1 + pad_x), min(h, y1 + pad_y)
+    if (x1 - x0) * (y1 - y0) > w * h * 0.7 or (x1 - x0) < w * 0.12 or (y1 - y0) < h * 0.08:
+        return None
+    return [round(x0 / w, 4), round(y0 / h, 4), round((x1 - x0) / w, 4), round((y1 - y0) / h, 4)]
+
+
 def clips(path: Path, caption: str, rec_no: int, work: Path, max_clips: int = MAX_CLIPS) -> list[dict]:
     """Cut one recording into up to `max_clips` candidate clips (silent H.264, WIDTH px, FPS)."""
     work.mkdir(parents=True, exist_ok=True)
@@ -81,10 +111,15 @@ def clips(path: Path, caption: str, rec_no: int, work: Path, max_clips: int = MA
         ffmpeg.run(["-ss", f"{(b - a) * 0.75:.2f}", "-i", str(clip), "-frames:v", "1", "-q:v", "3", str(poster)])
         with Image.open(poster) as im:
             w, h = im.size
+        try:
+            focus = _focus(clip, work)
+        except Exception as e:
+            log.debug("focus of %s failed: %s", clip.name, e)
+            focus = None
         label = caption or "the user's screen recording"
         out.append({"id": f"R{rec_no}c{k}", "path": poster, "w": w, "h": h, "page": "",
                     "text": f"{label} – moving clip {k + 1} ({a:.0f}s–{b:.0f}s of the recording)",
-                    "clip_path": clip, "clip_s": round(b - a, 2), "user": True})
+                    "clip_path": clip, "clip_s": round(b - a, 2), "user": True, "focus": focus})
     log.info("recording %s: %.0fs -> %s clip(s)", path.name, secs, len(out))
     return out
 

@@ -28,7 +28,8 @@ def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True, opt
     if kind == "post":  # recordings are for videos
         uploads = [u for u in uploads if not u.get("video")]
     length = {"series": "short"}.get(options.get("length", ""), options.get("length", ""))
-    vkw = dict(length=length, uploads=uploads, outline_only=bool(options.get("outline") and (length or uploads)))
+    vkw = dict(length=length, uploads=uploads, outline_only=bool(options.get("outline") and (length or uploads)),
+               style=options.get("style") or "tour")
     site = None if own else sitetheme.build((company() or {}).get("design") or {}, (company() or {}).get("brand_colors"))
     try:
         if kind == "video":

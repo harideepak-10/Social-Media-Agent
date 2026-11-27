@@ -197,10 +197,14 @@ def save_storyboard(item_id: int, edits: dict, voice_name: str, render: bool = T
                 if kind == "scene" and isinstance((new or {}).get("bullets"), list):
                     dst["bullets"] = [{"icon": str(b.get("icon", "check"))[:20], "text": str(b.get("text", ""))[:160]}
                                       for b in new["bullets"][:5] if isinstance(b, dict)]
-                if kind == "scene" and isinstance((new or {}).get("steps"), list):
-                    dst["steps"] = [{"icon": str(b.get("icon", "check"))[:20], "title": str(b.get("title", ""))[:60],
-                                     "desc": str(b.get("desc", ""))[:120]}
-                                    for b in new["steps"][:6] if isinstance(b, dict) and b.get("title")] or dst.get("steps")
+                if kind == "scene" and isinstance((new or {}).get("steps"), list) and dst.get("steps"):
+                    # same steps, new words (keeps each step's icon / spotlight position)
+                    for old, nb in zip(dst["steps"], new["steps"]):
+                        if isinstance(old, dict) and isinstance(nb, dict):
+                            if "title" in nb:
+                                old["title"] = str(nb.get("title") or "")[:60]
+                            if "desc" in nb:
+                                old["desc"] = str(nb.get("desc") or "")[:120]
 
             for kind in ("festive", "intro", "grid", "outro"):
                 if kind in edits and isinstance(board.get(kind), dict):

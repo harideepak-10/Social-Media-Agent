@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  ArrowDown, ArrowUp, Clapperboard, Film, Globe, ListOrdered, Loader2, MonitorPlay, Save, Trash2, Undo2, Volume2, Workflow,
+  ArrowDown, ArrowUp, Clapperboard, Film, Globe, ImageIcon, ListOrdered, Loader2, MonitorPlay, MousePointerClick, Save, Trash2, Undo2,
+  Volume2, Workflow,
 } from "lucide-react";
 import { api, type ItemDetail, type SceneTexts, type Storyboard } from "../lib/api";
 import { Button, Card, inputCls, useToast } from "./ui";
@@ -16,14 +17,19 @@ const TYPE: Record<string, { label: string; icon: typeof Globe; cls: string }> =
   feature: { label: "Screen", icon: MonitorPlay, cls: "bg-amber-50 text-amber-800 ring-amber-200" },
   workflow: { label: "How it works", icon: Workflow, cls: "bg-violet-50 text-violet-700 ring-violet-200" },
   clip: { label: "Your recording", icon: Film, cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  spot: { label: "Spotlight", icon: MousePointerClick, cls: "bg-sky-50 text-sky-700 ring-sky-200" },
+  shot: { label: "Your screenshot", icon: ImageIcon, cls: "bg-amber-50 text-amber-800 ring-amber-200" },
 };
 
 function seconds(sc: SceneTexts): number {
   const words = String(sc.voice ?? "").split(/\s+/).filter(Boolean).length;
   const base = sc.type === "tour" ? 8.5 : sc.type === "workflow" ? 2.6 + 1.5 * (sc.steps?.length ?? 0)
+    : sc.type === "spot" ? 2.2 + 2.8 * Math.max(1, sc.steps?.length ?? 0) : sc.type === "shot" ? 4.6
     : sc.type === "clip" ? 1.7 + (sc.clip_s ?? 6.5) : 6.4;
   return Math.min(Math.max(base, words ? words / 2.6 + 1.2 : 0), 16);
 }
+
+const tourType = (sc: SceneTexts) => sc.type === "spot" || sc.type === "shot" || (sc.type === "clip" && !sc.bullets);
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
@@ -134,7 +140,10 @@ export default function OutlineEditor({ item }: { item: ItemDetail }) {
                       {sc.page_name && <span className="truncate text-[11px] text-stone-400">{sc.page_name}</span>}
                       <span className="text-[11px] tabular-nums text-stone-400">~{Math.round(seconds(sc))}s</span>
                     </div>
-                    <div className="mt-0.5 truncate text-sm font-semibold">{sc.headline} <span className="text-brand-700">{sc.accent}</span></div>
+                    <div className="mt-0.5 truncate text-sm font-semibold">
+                      {tourType(sc) ? (sc.steps ?? []).map((x) => x.title).filter(Boolean).join(" · ") || sc.headline
+                        : <>{sc.headline} <span className="text-brand-700">{sc.accent}</span></>}
+                    </div>
                   </button>
                   <div className="flex shrink-0 items-center">
                     <IconBtn title="Move up" disabled={pos === 0} onClick={() => move(pos, -1)}><ArrowUp className="size-4" /></IconBtn>
@@ -144,15 +153,22 @@ export default function OutlineEditor({ item }: { item: ItemDetail }) {
                 </div>
                 {isOpen && (
                   <div className="grid grid-cols-1 gap-2 border-t border-stone-100 p-3 sm:grid-cols-2">
-                    <Text label="Small label" v={sc.eyebrow} on={(v) => setScene(i, { eyebrow: v })} />
-                    <Text label="Page" v={sc.page_name} on={(v) => setScene(i, { page_name: v })} />
-                    <Text label="Headline" v={sc.headline} on={(v) => setScene(i, { headline: v })} />
-                    <Text label="Headline (coloured part)" v={sc.accent} on={(v) => setScene(i, { accent: v })} />
+                    {tourType(sc) ? (sc.steps ?? []).map((st, j) => (
+                      <Text key={`l${j}`} wide label={sc.type === "spot" ? `Spotlight ${j + 1} label` : "Label"} v={st.title}
+                        on={(v) => setScene(i, { steps: (sc.steps ?? []).map((x, k) => (k === j ? { ...x, title: v } : x)) })} />
+                    )) : (
+                      <>
+                        <Text label="Small label" v={sc.eyebrow} on={(v) => setScene(i, { eyebrow: v })} />
+                        <Text label="Page" v={sc.page_name} on={(v) => setScene(i, { page_name: v })} />
+                        <Text label="Headline" v={sc.headline} on={(v) => setScene(i, { headline: v })} />
+                        <Text label="Headline (coloured part)" v={sc.accent} on={(v) => setScene(i, { accent: v })} />
+                      </>
+                    )}
                     {(sc.bullets ?? []).map((b, j) => (
                       <Text key={`b${j}`} wide label={`Point ${j + 1}`} v={b.text}
                         on={(v) => setScene(i, { bullets: (sc.bullets ?? []).map((x, k) => (k === j ? { ...x, text: v } : x)) })} />
                     ))}
-                    {(sc.steps ?? []).map((st, j) => (
+                    {!tourType(sc) && (sc.steps ?? []).map((st, j) => (
                       <div key={`s${j}`} className="grid grid-cols-[2rem_1fr_1.4fr] items-end gap-2 sm:col-span-2">
                         <span className="grid size-8 place-items-center rounded-full bg-violet-600 text-xs font-bold text-white">{j + 1}</span>
                         <Text label="Step" v={st.title} on={(v) => setScene(i, { steps: (sc.steps ?? []).map((x, k) => (k === j ? { ...x, title: v } : x)) })} />
