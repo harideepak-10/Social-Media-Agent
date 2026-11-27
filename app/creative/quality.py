@@ -98,7 +98,8 @@ def _ai_review(images: list[Path], kind: str, captions: dict, topic: str) -> dic
         "Check strictly but practically and list ONLY concrete problems a reviewer must fix:\n"
         "- text clipped, cut off at the edges, overlapping, or too small/low-contrast to read\n"
         "- spelling mistakes or broken words in the visual\n"
-        "- blank, black or broken frames/sections, missing images, broken mockups\n"
+        "- blank, black or broken frames/sections, missing images, broken mockups – including an app/browser\n"
+        "  screen or highlighted area that is EMPTY (plain white/grey with no content, a page scrolled past its content)\n"
         "- wrong or misspelled brand/product name\n"
         "- caption doesn't match what the visual shows, or makes a doubtful claim (fake numbers, guarantees)\n"
         "Return JSON {\"score\": 1-10, \"summary\": \"one sentence\", \"problems\": [\"...\"]}. "
@@ -131,6 +132,8 @@ def check(kind: str, gen: dict, platforms: list[str], topic: str, work: Path) ->
     else:
         vcfg = settings().get("video") or {}
         max_s = int(vcfg.get("max_seconds", 75))
+        if (gen.get("copy") or {}).get("_length") == "full":  # a full walkthrough is meant to be 2-4 minutes
+            max_s = max(max_s, 260)
         for label, path, size in (("16:9", media, VIDEO_SIZES["landscape"]),
                                   ("9:16", Path(gen["alt"]) if gen.get("alt") else None, VIDEO_SIZES["vertical"])):
             if not path:
@@ -145,12 +148,13 @@ def check(kind: str, gen: dict, platforms: list[str], topic: str, work: Path) ->
             if vcfg.get("voiceover", True):
                 checks.append(_check(f"Video {label} sound", any(x.get("codec_type") == "audio" for x in streams),
                                      "has audio" if any(x.get("codec_type") == "audio" for x in streams) else "no audio track"))
-            frames = _frames(path, 6 if label == "16:9" else 3, work, label.replace(":", "x"))
+            n_frames = (min(12, max(6, int(dur // 8))) if label == "16:9" else 3)   # long walkthroughs: more samples
+            frames = _frames(path, n_frames, work, label.replace(":", "x"))
             blanks = sum(_blank(Image.open(f)) for f in frames)
             checks.append(_check(f"Video {label} frames", blanks == 0, f"{blanks} blank of {len(frames)} sampled"
                                  if blanks else f"{len(frames)} sampled, none blank", warn=blanks == 1))
             if label == "16:9" and frames:
-                review_images.append(_grid(frames, work / "qa_grid_16x9.jpg", 3))
+                review_images.append(_grid(frames, work / "qa_grid_16x9.jpg", 4 if len(frames) > 9 else 3))
             elif frames:
                 review_images.append(_grid(frames, work / "qa_grid_9x16.jpg", 3))
 

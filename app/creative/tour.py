@@ -44,6 +44,9 @@ def capture(plan: dict, work: Path, uploads: list[dict] | None, max_pages: int =
             log.warning("tour capture of %s failed: %s", u, e)
             continue
         for s in cap["screens"]:
+            with Image.open(s["path"]) as im:
+                if recording.is_blank(im):  # an empty screen (still loading, blank page) is never shown
+                    continue
             out["screens"].append({"id": f"P{i}S{s['id']}", "path": s["path"], "w": s["w"], "h": s["h"], "url": u,
                                    "page": names.get(u) or cap["title"].split("|")[0].strip() or u,
                                    "spots": s["spots"], "links": cap["links"][:80], "text": cap["text"][:1200]})
@@ -257,7 +260,7 @@ html,body{{width:{w}px;height:{h}px;overflow:hidden;background:#0b1020;font-fami
 #glow{{position:absolute;border-radius:12px;border:2.5px solid {acc};opacity:0;
  box-shadow:0 0 0 6px {acc}26,0 18px 50px rgba(0,0,0,.35),0 0 60px {acc}66}}
 #pill{{position:absolute;display:flex;align-items:center;gap:10px;white-space:nowrap;padding:8px 18px 8px 8px;border-radius:99px;
- background:linear-gradient(90deg,{acc},{theme['accent2']});color:#fff;font-weight:700;font-size:{30 if size[1] > size[0] else 24}px;opacity:0;
+ background:linear-gradient(90deg,{acc},{theme['accent2']});color:{theme.get('btn_text') or '#fff'};font-weight:700;font-size:{30 if size[1] > size[0] else 24}px;opacity:0;
  box-shadow:0 10px 30px {acc}66;transform-origin:center bottom}}
 #pill i{{font-style:normal;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#fff;color:{acc};font-size:17px}}
 #cur{{position:absolute;left:0;top:0;width:34px;height:34px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.35));opacity:0}}
@@ -308,8 +311,12 @@ window.__render=t=>{
     const gx=(r[0]+r[2]/2)*SW,gy=(r[1]+r[3]/2)*SH,gw=r[2]*SW*lift,gh=r[3]*SH*lift;
     glow.style.left=(gx-gw/2)+'px';glow.style.top=(gy-gh/2)+'px';glow.style.width=gw+'px';glow.style.height=gh+'px';glow.style.opacity=st.on;
     // label above the box (screen px of the final video, so it stays the same size whatever the zoom)
-    const px=ox+gx*s,py=oy+(gy-gh/2)*s;pill.style.left=px+'px';pill.style.top=(py-16)+'px';
-    pill.style.transform=`translate(-50%%,-100%%) scale(${0.85+0.15*st.lk})`;pill.style.opacity=st.i>=0&&steps[st.i].label?st.lk*st.on:0;
+    const pw=pill.offsetWidth||200,ph=pill.offsetHeight||46;
+    const px=Math.min(W-pw/2-16,Math.max(pw/2+16,ox+gx*s));let py=oy+(gy-gh/2)*s-16,below=false;
+    if(py-ph<12){py=Math.min(H-ph-12,oy+(gy+gh/2)*s+16);below=true;}   // no room above the box: put the label under it
+    if(below&&py+ph>H-12){py=Math.max(12+ph,oy+(gy-gh/2)*s+ph+16);below=false;}  // nor under it: inside, at its top
+    pill.style.left=px+'px';pill.style.top=py+'px';
+    pill.style.transform=`translate(-50%%,${below?'0':'-100%%'}) scale(${0.85+0.15*st.lk})`;pill.style.opacity=st.i>=0&&steps[st.i].label?st.lk*st.on:0;
     if(st.i>=0){num.textContent=String(st.i+1);lab.textContent=steps[st.i].label;}
   }else{glow.style.opacity=0;pill.style.opacity=0;}
   // cursor: glides between points (screen fractions), clicks at the end when it goes to the next page
@@ -408,18 +415,37 @@ def _page(theme, size, img, lay, spec, logo, label: str | None = None) -> str:
 {_timeline_js(spec)}</body></html>""")
 
 
+def _rgb(hx: str) -> tuple[int, int, int]:
+    hx = str(hx).lstrip("#")[:6]
+    try:
+        return tuple(int(hx[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+    except ValueError:
+        return (37, 99, 235)
+
+
+def _dark_bg(theme: dict) -> str:
+    """The title cards are dark: the brand's own dark background, else its accent colour taken almost to black."""
+    r, g, b = _rgb(theme.get("bg", "#ffffff"))
+    if 0.2126 * r + 0.7152 * g + 0.0722 * b < 60:
+        return theme["bg"]
+    ar, ag, ab = _rgb(theme["accent"])
+    k = 0.1
+    return "#%02x%02x%02x" % (int(ar * k + 3), int(ag * k + 5), int(ab * k + 14))
+
+
 def scene_title(d: dict, theme: dict, size: tuple[int, int], dur: float, logo: str | None, outro: bool = False) -> str:
-    """Intro / outro card: dark, centred, glowing – like the opening of a launch video."""
+    """Intro / outro card: dark, centred, glowing in the brand colour – like the opening of a launch video."""
     w, h = size
     vert = h > w
     acc, acc2 = theme["accent"], theme["accent2"]
+    btn_text = theme.get("btn_text") or "#fff"
     c = company()
     brand = (f'<img src="{logo}" style="height:{56 if vert else 48}px">' if logo else
              f'<b style="font-size:{30 if vert else 26}px;letter-spacing:.04em">{_e(c.get("name", ""))}</b>')
     hs = 92 if vert else 76
     cta = (f'<div class="t" style="animation-delay:1.1s;margin-top:{30 if vert else 22}px;display:inline-flex;align-items:center;gap:12px;'
            f'padding:{20 if vert else 16}px {44 if vert else 36}px;border-radius:99px;background:linear-gradient(90deg,{acc},{acc2});'
-           f'font-weight:700;font-size:{30 if vert else 26}px;box-shadow:0 16px 50px {acc}66">{_e(d.get("cta"))} →</div>'
+           f'color:{btn_text};font-weight:700;font-size:{30 if vert else 26}px;box-shadow:0 16px 50px {acc}66">{_e(d.get("cta"))} →</div>'
            if outro and d.get("cta") else "")
     eyebrow = (f'<div class="t" style="animation-delay:.15s;letter-spacing:.3em;font-size:{20 if vert else 16}px;'
                f'font-weight:700;color:#ffffffaa;text-transform:uppercase">{_e(d.get("eyebrow"))}</div>' if d.get("eyebrow") else "")
@@ -435,7 +461,7 @@ def scene_title(d: dict, theme: dict, size: tuple[int, int], dur: float, logo: s
 <style>*{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:{w}px;height:{h}px;overflow:hidden;font-family:Inter,'Segoe UI',Arial,sans-serif;color:#fff;
  background:radial-gradient(ellipse 70% 60% at 50% 18%,{acc}88 0%,transparent 70%),
- radial-gradient(ellipse 50% 40% at 85% 95%,{acc2}55 0%,transparent 70%),#050a1f}}
+ radial-gradient(ellipse 50% 40% at 85% 95%,{acc2}55 0%,transparent 70%),{_dark_bg(theme)}}}
 @keyframes up{{from{{opacity:0;transform:translateY(22px);filter:blur(6px)}}to{{opacity:1;transform:none;filter:none}}}}
 @keyframes out{{to{{opacity:0;filter:blur(8px)}}}}
 .t{{animation:up .9s cubic-bezier(.2,.8,.2,1) both}}

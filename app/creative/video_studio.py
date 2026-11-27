@@ -628,6 +628,11 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
             n = recording.frames(Path(b["clip_path"]), work / f"clipf{k}")
             if n:
                 sc["_clip"] = {"dir": f"clipf{k}", "n": n, "fps": recording.FPS}
+            else:
+                sc["_empty"] = True   # the clip is (mostly) an empty screen
+    if any(sc.get("_empty") for sc in board["scenes"]) and len(board["scenes"]) > 1:
+        log.warning("dropping %s scene(s) that only show an empty screen", sum(1 for sc in board["scenes"] if sc.get("_empty")))
+        board["scenes"] = [sc for sc in board["scenes"] if not sc.get("_empty")] or board["scenes"]
 
     # 1) voice-over and timing
     progress.report("Recording the voice-over" if voice else "Timing the scenes", 35)

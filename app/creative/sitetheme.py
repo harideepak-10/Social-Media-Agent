@@ -120,7 +120,8 @@ def build(design: dict, colors: dict | None = None) -> tuple[dict, dict] | None:
     accent = _rgb(btn.get("bg"))
     primary = _rgb(colors.get("primary"))
     if not accent or not vivid(accent) or contrast(accent, bg) < 1.6:
-        accent = primary if primary and vivid(primary) else (accent or (79, 70, 229))
+        found = Counter(c for c in bgs if vivid(c) and contrast(c, bg) >= 1.6).most_common(1)  # e.g. a blue card / banner
+        accent = primary if primary and vivid(primary) else (found[0][0] if found else (79, 70, 229))
     accent = _readable(accent, bg, 2.6)
     btn_text = _rgb(btn.get("color"))
     if not btn_text or contrast(btn_text, accent) < 2.2:  # keep the site's own button text colour when it's legible
