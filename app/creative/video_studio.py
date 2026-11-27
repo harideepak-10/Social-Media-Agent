@@ -107,6 +107,19 @@ You also make product WALKTHROUGH videos: they guide a new customer through the 
 the product works (real workflow steps) and why it helps – clear and friendly, like a great sales demo."""
 
 
+def _colours_of(cap: dict) -> dict | None:
+    from . import screenrec, sitetheme
+    stills = [s["path"] for s in cap.get("screens") or [] if not s.get("url")] + \
+             [m["path"] for m in cap.get("media") or [] if m.get("user")]
+    if not stills:
+        return None
+    pal = screenrec.palette(stills)
+    if not pal or not pal["colors"].get("primary"):
+        return None
+    built = sitetheme.build({"bgs": pal["bgs"]}, {k: v for k, v in pal["colors"].items() if v})
+    return built[1] if built else None
+
+
 def capture_pages(plan: dict, work: Path, uploads: list[dict] | None = None, max_pages: int = 6) -> dict:
     """Capture EVERY chosen page (UI blocks + a full-page shot for the scrolling page tour) and add the user's
     own screenshots. Returns {blocks: [...], pages: [{id 'P0', url, name, full}], text}."""
@@ -726,7 +739,8 @@ def build(board: dict, theme_name: str, work: Path, targets: dict[str, Path], pr
 
 def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict | None,
              theme_spec: dict | None = None, length: str = "", uploads: list[dict] | None = None,
-             outline_only: bool = False, source_dir: Path | None = None, style: str = "tour") -> dict:
+             outline_only: bool = False, source_dir: Path | None = None, style: str = "tour",
+             media_colors: bool = False) -> dict:
     """length "" = the classic promo; "short"/"full" = a walkthrough of every chosen page (+ the user's screenshots).
     outline_only: stop after the storyboard (the user reviews/reorders the scenes, then "Make video" renders it)."""
     vcfg = settings().get("video") or {}
@@ -737,6 +751,10 @@ def generate(plan: dict, day: date, item_id: int, theme_name: str, product: dict
         cap = tour.capture(plan, work, uploads, max_pages=8 if length == "full" else 4)
         progress.report(f"AI is writing the product tour from {len(cap['screens'])} screens and {len(cap['media'])} clips", 25)
         board = tour.storyboard(plan, product, cap, work, voice, length or "short")
+        if media_colors:  # no website link: wear the colours of the user's own recording / screenshots
+            spec = _colours_of(cap)
+            if spec:
+                theme_spec = spec
     elif length or uploads:
         cap = capture_pages(plan, work, uploads, max_pages=6 if length == "full" else 4)
         progress.report(f"AI is writing the walkthrough from {len(cap['pages'])} pages and {len(cap['blocks'])} screens", 25)

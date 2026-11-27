@@ -29,7 +29,7 @@ def create(plan: dict, day: date, item_id: int, kind: str, own: bool = True, opt
         uploads = [u for u in uploads if not u.get("video")]
     length = {"series": "short"}.get(options.get("length", ""), options.get("length", ""))
     vkw = dict(length=length, uploads=uploads, outline_only=bool(options.get("outline") and (length or uploads)),
-               style=options.get("style") or "tour")
+               style=options.get("style") or "tour", media_colors=own and bool(uploads))
     site = None if own else sitetheme.build((company() or {}).get("design") or {}, (company() or {}).get("brand_colors"))
     if kind == "video" and not site and vkw["style"] == "tour" and (length or uploads):
         # the product tour always wears the brand's own colours (our brand colours from Settings when there's no link)

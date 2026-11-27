@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 from .. import llm, progress
 from ..config import company
 from ..research import explorer
-from . import brandfix, recording, rotation, visuals
+from . import brandfix, recording, rotation, screenrec, visuals
 
 log = logging.getLogger(__name__)
 
@@ -53,11 +53,15 @@ def capture(plan: dict, work: Path, uploads: list[dict] | None, max_pages: int =
     imgs = [u for u in uploads or [] if not (u.get("video") or recording.is_video(u["path"]))]
     recs = [u for u in uploads or [] if u not in imgs]
     for j, up in enumerate(recs):
-        progress.report(f"Finding the best moments in your screen recording {j + 1}", 22)
+        # a screen recording = the person clicking through their app: find its pages (in order), the panels on
+        # each page to spotlight, where they clicked, and moments where something happens in place
+        progress.report(f"Watching your screen recording {j + 1}: finding its pages", 18)
         progress.check()
         try:
-            out["media"] += recording.clips(Path(up["path"]), up.get("caption", ""), j, work / f"rec{j}",
-                                            max_clips={1: 8, 2: 5}.get(len(recs), 3))
+            got = screenrec.analyze(Path(up["path"]), up.get("caption", ""), j, work / f"rec{j}",
+                                    max_pages={1: 20, 2: 12}.get(len(recs), 8))
+            out["screens"] += got["screens"]
+            out["media"] += got["media"]
         except Exception as e:
             log.warning("screen recording %s skipped: %s", up["path"], e)
     for j, up in enumerate(imgs):
@@ -72,8 +76,9 @@ def capture(plan: dict, work: Path, uploads: list[dict] | None, max_pages: int =
     return out
 
 
-def _sheet(cap: dict, work: Path) -> Path | None:
-    """Contact sheet for the AI: every screen with its numbered spotlight boxes, then the user's clips/screenshots."""
+def _sheets(cap: dict, work: Path) -> list[Path]:
+    """Contact sheets for the AI: every screen with its numbered spotlight boxes (6 per sheet, big enough to read),
+    then the user's clips/screenshots."""
     tiles = []
     for s in cap["screens"]:
         im = Image.open(s["path"]).convert("RGB")
@@ -89,9 +94,10 @@ def _sheet(cap: dict, work: Path) -> Path | None:
         tiles.append({"id": s["id"], "path": p})
     for m in cap["media"]:
         tiles.append({"id": m["id"], "path": m["path"]})
-    if not tiles:
-        return None
-    return visuals.contact_sheet(tiles[:30], work / "tour_sheet.jpg")
+    out = []
+    for n in range(0, min(len(tiles), 36), 6):
+        out.append(visuals.contact_sheet(tiles[n:n + 6], work / f"tour_sheet{n // 6}.jpg", thumb_w=620))
+    return out
 
 
 def _font(size: int):
@@ -103,11 +109,14 @@ def _font(size: int):
 def storyboard(plan: dict, product: dict | None, cap: dict, work: Path, voice: bool, length: str = "short") -> dict:
     L = LENGTHS.get(length, LENGTHS["short"])
     c = company()
-    sheet = _sheet(cap, work)
+    sheets = _sheets(cap, work)
     screen_lines = "\n".join(
-        f"{s['id']} – page \"{s['page']}\" ({s['url']}):\n" +
-        "\n".join(f"   spot {k + 1}: {sp['text'][:160]}" for k, sp in enumerate(s["spots"]))
+        (f"{s['id']} – page \"{s['page']}\" ({s['url']}):\n" if s.get("url") else
+         f"{s['id']} – a page from the user's screen recording ({s['page']}){' – reached by clicking the sidebar' if s.get('nav_in') else ''}; "
+         f"{len(s['spots'])} boxed sections (read them on the contact sheet)\n") +
+        "\n".join(f"   spot {k + 1}: {sp['text'][:160]}" for k, sp in enumerate(s["spots"]) if sp.get("text"))
         for s in cap["screens"])
+    from_rec = any(not s.get("url") for s in cap["screens"])
     media_lines = "\n".join(f"{m['id']} ({'moving clip from the user’s screen recording' if m.get('clip_path') else 'user screenshot'}): "
                             f"{m['text'][:200]}" for m in cap["media"])
     story = "\n".join(f"- {s}" for s in plan.get("story") or [])
@@ -121,20 +130,22 @@ PLANNED STORY:
 FACTS ABOUT THE PRODUCT (use only these; never invent features or numbers):
 {plan.get('site_summary', '')[:6000]}
 
-SCREENS (full-screen captures; red numbered boxes on the contact sheet = sections you can spotlight):
+SCREENS (full-screen captures{', in the order the user clicked through them in the recording' if from_rec else ''}; red numbered boxes
+on the contact sheets = sections you can spotlight; read each screen on the sheets to know what it shows):
 {screen_lines or '(none)'}
 
-THE USER'S OWN MATERIAL (R…c… = moving clips from their screen recording – the real product in use, the best proof;
+THE USER'S OWN MATERIAL (R…A… = moving clips from their screen recording – the real product in use, the best proof;
 U… = their screenshots):
 {media_lines or '(none)'}
 
 ALREADY USED RECENTLY (do not repeat): {rotation.recent_creative_memory()}
 
 Write a PRODUCT TOUR with {L['scenes']} scenes in customer-journey order (sign in / first look -> core features ->
-how work gets done -> control & trust -> result). Scene types:
+how work gets done -> control & trust -> result).{' Keep the order of the recording (that is how the product is really used); skip screens that are empty, loading, duplicated or not interesting.' if from_rec else ''}
+Scene types:
 - "spot": one screen; 1-3 of its spots light up one after another, each with a short label.
   {{"type":"spot","screen":"P0S0","steps":[{{"spot":1,"label":"Your tools, connected"}}]}}
-- "clip": one of the user's moving clips plays full screen. {{"type":"clip","block":"R0c1","label":"Approve in one tap"}}
+- "clip": one of the user's moving clips plays full screen. {{"type":"clip","block":"R0A1","label":"Ask in plain English"}}
 - "shot": one of the user's screenshots. {{"type":"shot","block":"U0","label":"…"}}
 Labels: 2-5 words, benefit-first, like "Live business KPIs", "Decisions waiting for you", "Set once, runs forever".
 {'Use most of the R… clips, in their order, between the screens they belong to.' if any(m.get('clip_path') for m in cap['media']) else ''}
@@ -146,7 +157,7 @@ captions for instagram/facebook/linkedin and 8-12 hashtags.
 Return JSON: {{"title": "…", "intro": {{…}}, "scenes": [{{…}}], "outro": {{…}},
  "captions": {{"instagram": "…", "facebook": "…", "linkedin": "…"}}, "hashtags": ["#…"]}}"""
     data = llm.complete_json(prompt, SYSTEM, max_tokens=9000 if length == "full" else 5000, design=True,
-                             images=[sheet] if sheet and llm.vision_available() else None)
+                             images=sheets or None if llm.vision_available() else None)
     data = brandfix.fix_obj(data)
     screens = {s["id"].upper(): s for s in cap["screens"]}
     media = {m["id"].upper(): m for m in cap["media"]}
@@ -203,6 +214,7 @@ def _short(text: str) -> str:
 
 def _screen_block(s: dict) -> dict:
     return {"id": s["id"], "path": s["path"], "w": s["w"], "h": s["h"], "url": s["url"],
+            "nav_in": s.get("nav_in"), "rec": s.get("rec"), "t": s.get("t"),
             "links": [{"href": ln["href"], "r": [round(ln["x"], 4), round(ln["y"], 4), round(ln["w"], 4), round(ln["h"], 4)]}
                       for ln in s.get("links") or []][:80]}
 
@@ -210,6 +222,8 @@ def _screen_block(s: dict) -> dict:
 def nav_rect(scene: dict, next_scene: dict | None) -> list | None:
     """Where the cursor clicks to go to the next page (a link on this screen that points there)."""
     b, nb = scene.get("_block") or {}, (next_scene or {}).get("_block") or {}
+    if nb.get("nav_in") and nb.get("rec") is not None and nb.get("rec") == b.get("rec"):
+        return nb["nav_in"]  # recording: the sidebar item the person clicked to get to the next page
     if not nb.get("url") or nb.get("url") == b.get("url"):
         return None
     target = explorer._norm(nb["url"])
@@ -280,7 +294,7 @@ const lerp=(a,b,k)=>a+(b-a)*k;const mix=(A,B,k)=>A.map((v,i)=>lerp(v,B[i],k));
 const W=S.W,H=S.H,SW=S.SW,SH=S.SH;
 function camFor(r){ // scale + offset that frames rect r (fractions of the screen)
   const s0=S.fit;if(!r)return[s0,(W-SW*s0)/2,(H-SH*s0)/2];
-  let s=S.vert?Math.min(S.zmax,Math.max(s0*1.15,(W*1.12)/(r[2]*SW))):s0*S.zl;
+  let s=S.vert?Math.min(S.zmax,Math.max(W/SW,(W*0.96)/(r[2]*SW))):s0*S.zl;   // vertical: the whole box fits the width
   const cx=(r[0]+r[2]/2)*SW,cy=(r[1]+r[3]/2)*SH;let ox=W/2-cx*s,oy=H/2-cy*s;
   if(!S.vert){ox=lerp((W-SW*s)/2,ox,0.45);oy=lerp((H-SH*s)/2,oy,0.45);}
   ox=Math.min(0,Math.max(W-SW*s,ox));
